@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { LayoutDashboard, ShoppingCart, ReceiptText, Users, Scissors, Download, Plus, Trash2, Printer, Search, Pencil, X, Check, Wallet, Percent, CalendarDays, RotateCcw } from "lucide-react";
+import { LayoutDashboard, ShoppingCart, ReceiptText, Users, Scissors, Download, Plus, Trash2, Printer, Search, Pencil, X, Check, Wallet, Percent, CalendarDays, RotateCcw, FileSpreadsheet } from "lucide-react";
 import "./styles.css";
 const VAT_RATE = 0.075, DEFAULT_COMMISSION = 30;
 const KEYS = { sales: "essence-pos-v2-sales", staff: "essence-pos-v2-staff", services: "essence-pos-v2-services" };
