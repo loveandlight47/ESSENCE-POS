@@ -28,7 +28,7 @@ function App() {
   const todaySales=sales.filter(s=>s.date===today());
   const filtered=useMemo(()=>sales.filter(s=>[s.receiptNo,s.customerName,s.paymentMethod,...(s.items||[]).map(i=>i.serviceName+" "+i.staffName)].join(" ").toLowerCase().includes(search.toLowerCase())&&(!dateFilter||s.date===dateFilter)),[sales,search,dateFilter]);
   const exportSales=list=>csvDownload([["Receipt","Date","Customer","Services","Staff","Subtotal","Discount","VAT","Total","Commission","Payment"],...list.map(s=>[s.receiptNo,s.date,s.customerName,(s.items||[]).map(i=>`${i.serviceName} x${i.quantity}`).join("; "),(s.items||[]).map(i=>i.staffName).join("; "),s.subtotal,s.discount,s.vat,s.total,s.commission,s.paymentMethod])]);
-  const nav=[["Dashboard",LayoutDashboard],["New Sale",ShoppingCart],["Sales History",ReceiptText],["Services",Scissors],["Staff & Commission",Users]];
+  const nav=[["Dashboard",LayoutDashboard],["New Sale",ShoppingCart],["Sales History",ReceiptText],["Monthly Reports",FileSpreadsheet],["Services",Scissors],["Staff & Commission",Users]];
   return <div className="shell"><aside className="sidebar"><div className="brand"><span className="brandmark">E</span><div><b>ESSENCE</b><small>UNISEX SALON & SPA</small></div></div><nav>{nav.map(([n,I])=><button key={n} className={page===n?"nav active":"nav"} onClick={()=>setPage(n)}><I size={18}/>{n}</button>)}</nav><small className="sidefoot">Salon POS · VAT 7.5%</small></aside>
   <main className="main"><header className="top"><div><h1>{page}</h1><p>Essence Unisex Salon & Spa</p></div><span className="date"><CalendarDays size={16}/>{today()}</span></header>{notice&&<div className="notice">{notice}</div>}
   {page==="Dashboard"&&<Dashboard sales={sales} staff={staff} todaySales={todaySales} newSale={()=>setPage("New Sale")} exportAll={()=>exportSales(sales)}/>}
@@ -36,6 +36,7 @@ function App() {
   {page==="Sales History"&&<History sales={filtered} search={search} setSearch={setSearch} date={dateFilter} setDate={setDateFilter} exportIt={()=>exportSales(filtered)} remove={id=>{if(confirm("Delete this sale permanently?")){saveSales(sales.filter(s=>s.id!==id));flash("Sale deleted.");}}}/>}
   {page==="Services"&&<Services services={services} save={saveServices} flash={flash}/>}
   {page==="Staff & Commission"&&<Staff staff={staff} sales={sales} save={saveStaff} flash={flash}/>}
+  {page==="Monthly Reports"&&<MonthlyReports sales={sales} staff={staff}/>}
   <footer>Essence Salon POS · Export your sales regularly for backup.</footer></main></div>;
 }
 function Panel({title,subtitle,children}){return <section className="panel"><div className="panelhead"><div><h2>{title}</h2><p>{subtitle}</p></div></div>{children}</section>}
@@ -86,5 +87,78 @@ function Staff({staff,sales,save,flash}) {
 }
 function ReceiptModal({sale,close}) {
  return <div className="overlay"><section className="receipt"><div className="receipthead"><h2>ESSENCE</h2><b>UNISEX SALON & SPA</b><p>SALES RECEIPT</p></div><div className="receiptmeta"><div><span>Receipt</span><b>{sale.receiptNo}</b></div><div><span>Date</span><b>{sale.date}</b></div><div><span>Customer</span><b>{sale.customerName}</b></div><div><span>Payment</span><b>{sale.paymentMethod}</b></div></div><Table headers={["Service / Staff","Qty","Amount"]}>{(sale.items||[]).map((i,n)=><tr key={i.id||n}><td>{i.serviceName}<small className="staffsub">{i.staffName}</small></td><td>{i.quantity}</td><td>{money(i.unitPrice*i.quantity)}</td></tr>)}</Table><div className="totals"><div><span>Subtotal</span><b>{money(sale.subtotal)}</b></div><div><span>Discount</span><b>-{money(sale.discount)}</b></div><div className="grand"><span>Total paid</span><b>{money(sale.total)}</b></div></div><p className="thanks">Thank you for choosing Essence!</p><div className="actions end no-print"><button className="btn" onClick={close}>Close</button><button className="btn primary" onClick={()=>window.print()}><Printer size={15}/> Print receipt</button></div></section></div>;
+}
+
+function MonthlyReports({sales,staff}) {
+ const currentMonth = new Date().getFullYear()+"-"+String(new Date().getMonth()+1).padStart(2,"0");
+ const [month,setMonth] = useState(currentMonth);
+ const filtered = sales.filter(s => (s.date||"").startsWith(month));
+ const sum = key => filtered.reduce((a,s)=>a+Number(s[key]||0),0);
+ const totalSales = sum("total");
+ const vat = sum("vat");
+ const commission = sum("commission");
+ const salonBalance = filtered.reduce((a,s)=>a+Math.max(0,Number(s.total||0)-Number(s.vat||0)-Number(s.commission||0)),0);
+
+ const exportReport = () => {
+  const rows = [
+   ["Essence Salon & Spa Monthly Report",month],
+   ["Receipt","Date","Customer","Sales","Discount","VAT","Commission","Salon Balance"],
+   ...filtered.map(s=>[
+    s.receiptNo,s.date,s.customerName,s.total,s.discount,s.vat,s.commission,
+    Math.max(0,Number(s.total||0)-Number(s.vat||0)-Number(s.commission||0))
+   ])
+  ];
+  const csv = rows.map(r=>r.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")).join("\n");
+  const blob = new Blob([csv],{type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "Essence-Monthly-Report-"+month+".csv";
+  link.click();
+  URL.revokeObjectURL(url);
+ };
+
+ const staffTotals = staff.map(p=>{
+  let salesTotal=0,commissionTotal=0;
+  filtered.forEach(s=>(s.items||[]).filter(i=>i.staffId===p.id).forEach(i=>{
+   const line = Number(i.unitPrice||0)*Number(i.quantity||0);
+   salesTotal += line;
+   commissionTotal += Number(i.commissionAmount??(line*Number(i.commissionRate||p.commissionRate||0)/100));
+  }));
+  return {...p,salesTotal,commissionTotal};
+ });
+
+ return <Panel title="Monthly Reports" subtitle="Review monthly sales, deductions and staff performance.">
+  <div className="filters">
+   <Field label="Report month"><input type="month" value={month} onChange={e=>setMonth(e.target.value)}/></Field>
+   <button className="btn primary" onClick={exportReport}><Download size={15}/> Export monthly CSV</button>
+  </div>
+  <div className="stats">
+   <div className="stat"><span>Total sales collected</span><strong>{money(totalSales)}</strong></div>
+   <div className="stat"><span>VAT deducted (7.5%)</span><strong>{money(vat)}</strong></div>
+   <div className="stat"><span>Staff commission</span><strong>{money(commission)}</strong></div>
+   <div className="stat"><span>Salon balance</span><strong>{money(salonBalance)}</strong></div>
+  </div>
+  <Panel title="Sales transactions" subtitle={month}>
+   <Table headers={["Receipt","Date","Customer","Sales","Discount","VAT","Commission","Salon balance"]}>
+    {filtered.map(s=><tr key={s.id}>
+     <td>{s.receiptNo}</td><td>{s.date}</td><td>{s.customerName}</td>
+     <td>{money(s.total)}</td><td>{money(s.discount)}</td><td>{money(s.vat)}</td>
+     <td>{money(s.commission)}</td>
+     <td>{money(Math.max(0,Number(s.total||0)-Number(s.vat||0)-Number(s.commission||0)))}</td>
+    </tr>)}
+    {!filtered.length&&<tr><td colSpan="8" className="empty">No sales recorded for this month.</td></tr>}
+   </Table>
+  </Panel>
+  <Panel title="Staff performance" subtitle="Service sales and commission earned during the selected month.">
+   <Table headers={["Staff member","Commission rate","Service sales","Commission earned"]}>
+    {staffTotals.map(p=><tr key={p.id}>
+     <td>{p.name}</td><td>{p.commissionRate}%</td>
+     <td>{money(p.salesTotal)}</td><td>{money(p.commissionTotal)}</td>
+    </tr>)}
+    {!staffTotals.length&&<tr><td colSpan="4" className="empty">No staff members added yet.</td></tr>}
+   </Table>
+  </Panel>
+ </Panel>;
 }
 createRoot(document.getElementById("root")).render(<React.StrictMode><App/></React.StrictMode>);
