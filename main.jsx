@@ -2,7 +2,6 @@ import React, { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { LayoutDashboard, ShoppingCart, ReceiptText, Users, Scissors, Download, Plus, Trash2, Printer, Search, Pencil, X, Check, Wallet, Percent, CalendarDays, RotateCcw } from "lucide-react";
 import "./styles.css";
-
 const VAT_RATE = 0.075, DEFAULT_COMMISSION = 30;
 const KEYS = { sales: "essence-pos-v2-sales", staff: "essence-pos-v2-staff", services: "essence-pos-v2-services" };
 const money = n => new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 2 }).format(Number(n) || 0);
@@ -98,10 +97,8 @@ function MonthlyReports({sales,staff}) {
  const vat = sum("vat");
  const commission = sum("commission");
  const salonBalance = filtered.reduce((a,s)=>a+Math.max(0,Number(s.total||0)-Number(s.vat||0)-Number(s.commission||0)),0);
-
  const exportReport = () => {
-  const rows = [
-   ["Essence Salon & Spa Monthly Report",month],
+ const rows = ["Essence Salon & Spa Monthly Report",month],
    ["Receipt","Date","Customer","Sales","Discount","VAT","Commission","Salon Balance"],
    ...filtered.map(s=>[
     s.receiptNo,s.date,s.customerName,s.total,s.discount,s.vat,s.commission,
