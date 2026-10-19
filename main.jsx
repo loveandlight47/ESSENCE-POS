@@ -98,13 +98,16 @@ function MonthlyReports({sales,staff}) {
  const commission = sum("commission");
  const salonBalance = filtered.reduce((a,s)=>a+Math.max(0,Number(s.total||0)-Number(s.vat||0)-Number(s.commission||0)),0);
  const exportReport = () => {
- const rows = ["Essence Salon & Spa Monthly Report",month],
+ 
+  const rows = [
+   ["Essence Salon & Spa Monthly Report",month],
    ["Receipt","Date","Customer","Sales","Discount","VAT","Commission","Salon Balance"],
    ...filtered.map(s=>[
     s.receiptNo,s.date,s.customerName,s.total,s.discount,s.vat,s.commission,
     Math.max(0,Number(s.total||0)-Number(s.vat||0)-Number(s.commission||0))
    ])
   ];
+
   const csv = rows.map(r=>r.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")).join("\n");
   const blob = new Blob([csv],{type:"text/csv;charset=utf-8;"});
   const url = URL.createObjectURL(blob);
