@@ -2,9 +2,10 @@
 
 /* ESSENCE POS - 58mm thermal receipt printing */
 @media print {
-  @page {
-    size: 58mm auto;
-    margin: 2mm;
+@page {
+  size: auto;
+  margin: 0;
+}
   }
 
   body {
@@ -35,8 +36,8 @@
     position: absolute !important;
     left: 0 !important;
     top: 0 !important;
-    width: 54mm !important;
-    max-width: 54mm !important;
+    width: 100% !important;
+    max-width: none !important;
     min-width: 0 !important;
     margin: 0 !important;
     padding: 1mm !important;
