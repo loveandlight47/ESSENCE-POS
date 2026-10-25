@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { LayoutDashboard, ShoppingCart, ReceiptText, Users, Scissors, Download, Plus, Trash2, Printer, Search, Pencil, X, Check, Wallet, Percent, CalendarDays, RotateCcw, FileSpreadsheet } from "lucide-react";
 import "./styles.css";
 const VAT_RATE = 0.075, DEFAULT_COMMISSION = 30;
+const MANAGER_ACCESS_CODE = "Saloon@90";
 const KEYS = { sales: "essence-pos-v2-sales", staff: "essence-pos-v2-staff", services: "essence-pos-v2-services" };
 const money = n => new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 2 }).format(Number(n) || 0);
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
@@ -15,7 +16,9 @@ function csvDownload(rows) {
   a.href = url; a.download = "essence-salon-sales.csv"; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 function App() {
-  const [page,setPage] = useState("Dashboard");
+  const [page,setPage] = useState("New Sale");
+const [managerUnlocked,setManagerUnlocked] = useState(false);
+const [managementTab,setManagementTab] = useState("Dashboard");
   const [sales,setSales] = useState(()=>read(KEYS.sales,[]));
   const [staff,setStaff] = useState(()=>read(KEYS.staff,[]).map(p=>typeof p==="string"?{id:uid(),name:p,commissionRate:DEFAULT_COMMISSION}:{id:p.id||uid(),name:p.name||"",commissionRate:Number(p.commissionRate??DEFAULT_COMMISSION)}));
   const [services,setServices] = useState(()=>read(KEYS.services,[]).map(s=>({...s,id:s.id||uid(),price:Number(s.price)||0})));
@@ -27,15 +30,38 @@ function App() {
   const todaySales=sales.filter(s=>s.date===today());
   const filtered=useMemo(()=>sales.filter(s=>[s.receiptNo,s.customerName,s.paymentMethod,...(s.items||[]).map(i=>i.serviceName+" "+i.staffName)].join(" ").toLowerCase().includes(search.toLowerCase())&&(!dateFilter||s.date===dateFilter)),[sales,search,dateFilter]);
   const exportSales=list=>csvDownload([["Receipt","Date","Customer","Services","Staff","Subtotal","Discount","VAT","Total","Commission","Payment"],...list.map(s=>[s.receiptNo,s.date,s.customerName,(s.items||[]).map(i=>`${i.serviceName} x${i.quantity}`).join("; "),(s.items||[]).map(i=>i.staffName).join("; "),s.subtotal,s.discount,s.vat,s.total,s.commission,s.paymentMethod])]);
-  const nav=[["Dashboard",LayoutDashboard],["New Sale",ShoppingCart],["Sales History",ReceiptText],["Monthly Reports",FileSpreadsheet],["Services",Scissors],["Staff & Commission",Users]];
-  return <div className="shell"><aside className="sidebar"><div className="brand"><span className="brandmark">E</span><div><b>ESSENCE</b><small>UNISEX SALON & SPA</small></div></div><nav>{nav.map(([n,I])=><button key={n} className={page===n?"nav active":"nav"} onClick={()=>setPage(n)}><I size={18}/>{n}</button>)}</nav><small className="sidefoot">Salon POS · VAT 7.5%</small></aside>
+  const nav=[["Management",LayoutDashboard],["New Sale",ShoppingCart],["Sales History",ReceiptText],["Services",Scissors]];
+  return <div className="shell"><aside className="sidebar"><div className="brand"><span className="brandmark">E</span><div><b>ESSENCE</b><small>UNISEX SALON & SPA</small></div></div><nav>{nav.map(([n,I])=><button key={n} className={page===n?"nav active":"nav"} onClick={()=>{
+  if(n==="Management"){
+    const code=window.prompt("Enter management access code");
+    if(code===MANAGER_ACCESS_CODE){
+      setManagerUnlocked(true);
+      setPage("Management");
+    }else if(code!==null){
+      alert("Incorrect access code.");
+    }
+  }else{
+    setManagerUnlocked(false);
+    setPage(n);
+  }
+}}><I size={18}/>{n}</button>)}</nav><small className="sidefoot">Salon POS · VAT 7.5%</small></aside>
   <main className="main"><header className="top"><div><h1>{page}</h1><p>Essence Unisex Salon & Spa</p></div><span className="date"><CalendarDays size={16}/>{today()}</span></header>{notice&&<div className="notice">{notice}</div>}
-  {page==="Dashboard"&&<Dashboard sales={sales} staff={staff} todaySales={todaySales} newSale={()=>setPage("New Sale")} exportAll={()=>exportSales(sales)}/>}
-  {page==="New Sale"&&<NewSale staff={staff} services={services} cancel={()=>setPage("Dashboard")} complete={s=>{saveSales([s,...sales]);flash("Sale saved: "+s.receiptNo);setPage("Sales History");}}/>}
+  
+{page==="Management"&&managerUnlocked&&<>
+  <div className="actions">
+    <button className="btn" onClick={()=>setManagementTab("Dashboard")}>Dashboard</button>
+    <button className="btn" onClick={()=>setManagementTab("Staff & Commission")}>Staff & Commission</button>
+    <button className="btn" onClick={()=>setManagementTab("Monthly Reports")}>Monthly Reports</button>
+    <button className="btn" onClick={()=>{setManagerUnlocked(false);setPage("New Sale");}}>Lock Management</button>
+  </div>
+  {managementTab==="Dashboard"&&<Dashboard sales={sales} staff={staff} todaySales={todaySales} newSale={()=>setPage("New Sale")} exportAll={()=>exportSales(sales)}/>}
+  {managementTab==="Staff & Commission"&&<Staff staff={staff} sales={sales} save={saveStaff} flash={flash}/>}
+  {managementTab==="Monthly Reports"&&<MonthlyReports sales={sales} staff={staff}/>}
+</>}
+
+ {page==="New Sale"&&<NewSale staff={staff} services={services} cancel={()=>setPage("Sales History")} complete={s=>{saveSales([s,...sales]);flash("Sale saved: "+s.receiptNo);setPage("Sales History");}}/>}
   {page==="Sales History"&&<History sales={filtered} search={search} setSearch={setSearch} date={dateFilter} setDate={setDateFilter} exportIt={()=>exportSales(filtered)} remove={id=>{if(confirm("Delete this sale permanently?")){saveSales(sales.filter(s=>s.id!==id));flash("Sale deleted.");}}}/>}
   {page==="Services"&&<Services services={services} save={saveServices} flash={flash}/>}
-  {page==="Staff & Commission"&&<Staff staff={staff} sales={sales} save={saveStaff} flash={flash}/>}
-  {page==="Monthly Reports"&&<MonthlyReports sales={sales} staff={staff}/>}
   <footer>Essence Salon POS · Export your sales regularly for backup.</footer></main></div>;
 }
 function Panel({title,subtitle,children}){return <section className="panel"><div className="panelhead"><div><h2>{title}</h2><p>{subtitle}</p></div></div>{children}</section>}
