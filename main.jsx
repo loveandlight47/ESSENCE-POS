@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { LayoutDashboard, ShoppingCart, ReceiptText, Users, Scissors, Download, Plus, Trash2, Printer, Search, Pencil, X, Check, Wallet, Percent, CalendarDays, RotateCcw, FileSpreadsheet } from "lucide-react";
 import "./styles.css";
+import { supabase } from "./supabase";
 const VAT_RATE = 0.075, DEFAULT_COMMISSION = 30;
 const MANAGER_ACCESS_CODE = "Saloon@90";
 const KEYS = { sales: "essence-pos-v2-sales", staff: "essence-pos-v2-staff", services: "essence-pos-v2-services" };
