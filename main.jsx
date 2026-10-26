@@ -23,6 +23,15 @@ function App() {
 const [staffPin, setStaffPin] = useState("");
 const [staffProfile, setStaffProfile] = useState(null);
 const [staffLoginError, setStaffLoginError] = useState("");
+  const [managerEmail, setManagerEmail] = useState("");
+const [managerPassword, setManagerPassword] = useState("");
+const [managerAuthError, setManagerAuthError] = useState("");
+const [newStaffName, setNewStaffName] = useState("");
+const [newStaffUsername, setNewStaffUsername] = useState("");
+const [newStaffPin, setNewStaffPin] = useState("");
+const [newStaffCommission, setNewStaffCommission] = useState("30");
+const [staffCreateMessage, setStaffCreateMessage] = useState("");
+const [staffCreateError, setStaffCreateError] = useState("");
 const [managerUnlocked,setManagerUnlocked] = useState(false);
 const [managementTab,setManagementTab] = useState("Dashboard");
   const [sales,setSales] = useState(()=>read(KEYS.sales,[]));
@@ -58,6 +67,88 @@ const [managementTab,setManagementTab] = useState("Dashboard");
   } catch (error) {
     setStaffLoginError(
       error.message || "Unable to sign in. Please try again."
+    );
+  }
+};
+
+const handleManagerSignIn = async (event) => {
+  event.preventDefault();
+  setManagerAuthError("");
+
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: managerEmail.trim(),
+      password: managerPassword,
+    });
+
+    if (error) throw error;
+
+    const { data: profile, error: profileError } = await supabase
+      .from("staff_profiles")
+      .select("role")
+      .eq("id", data.user.id)
+      .single();
+
+    if (profileError) throw profileError;
+
+    if (profile.role !== "manager") {
+      await supabase.auth.signOut();
+      throw new Error("This account is not authorised for management.");
+    }
+
+    setManagerPassword("");
+    setManagerUnlocked(true);
+    setPage("Management");
+  } catch (error) {
+    setManagerAuthError(
+      error.message || "Manager sign-in failed. Please try again."
+    );
+  }
+};
+
+const handleCreateStaff = async (event) => {
+  event.preventDefault();
+  setStaffCreateMessage("");
+  setStaffCreateError("");
+
+  if (!/^\d{6}$/.test(newStaffPin)) {
+    setStaffCreateError("The staff PIN must contain exactly six digits.");
+    return;
+  }
+
+  const commission = Number(newStaffCommission);
+
+  if (!Number.isFinite(commission) || commission < 0 || commission > 100) {
+    setStaffCreateError("Commission must be between 0 and 100.");
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke(
+      "staff-provision",
+      {
+        body: {
+          display_name: newStaffName.trim(),
+          username: newStaffUsername.trim().toLowerCase(),
+          pin: newStaffPin,
+          commission_rate: commission,
+        },
+      }
+    );
+
+    if (error) throw error;
+    if (data?.error) throw new Error(data.error);
+
+    setStaffCreateMessage(
+      `Account created for ${newStaffName.trim()}.`
+    );
+    setNewStaffName("");
+    setNewStaffUsername("");
+    setNewStaffPin("");
+    setNewStaffCommission("30");
+  } catch (error) {
+    setStaffCreateError(
+      error.message || "Could not create the staff account."
     );
   }
 };
@@ -137,21 +228,39 @@ if (!staffSession && !managerUnlocked) {
             {staffLoginError && <p role="alert">{staffLoginError}</p>}
             <button className="btn primary" type="submit">Sign in</button>
           </form>
-          <button
-  type="button"
-  className="btn"
-  onClick={() => {
-    const code = window.prompt("Enter management access code");
-    if (code === MANAGER_ACCESS_CODE) {
-      setManagerUnlocked(true);
-      setPage("Management");
-    } else if (code !== null) {
-      alert("Incorrect access code.");
-    }
-  }}
->
-  Manager Access
-</button>
+          
+<form onSubmit={handleManagerSignIn}>
+  <h3>Manager Sign In</h3>
+
+  <Field label="Manager email">
+    <input
+      type="email"
+      autoComplete="username"
+      value={managerEmail}
+      onChange={e => setManagerEmail(e.target.value)}
+      required
+    />
+  </Field>
+
+  <Field label="Manager password">
+    <input
+      type="password"
+      autoComplete="current-password"
+      value={managerPassword}
+      onChange={e => setManagerPassword(e.target.value)}
+      required
+    />
+  </Field>
+
+  {managerAuthError && (
+    <p role="alert">{managerAuthError}</p>
+  )}
+
+  <button className="btn primary" type="submit">
+    Sign in as Manager
+  </button>
+</form>
+
         </Panel>
       </main>
     </div>
@@ -183,7 +292,77 @@ if (!staffSession && !managerUnlocked) {
   </div>
   {managementTab==="Dashboard"&&<Dashboard sales={sales} staff={staff} todaySales={todaySales} newSale={()=>setPage("New Sale")} exportAll={()=>exportSales(sales)}/>}
   {managementTab==="Staff & Commission"&&<Staff staff={staff} sales={sales} save={saveStaff} flash={flash}/>}
-  {managementTab==="Monthly Reports"&&<MonthlyReports sales={sales} staff={staff}/>}
+  {managementTab==="Staff & Commission" && managerUnlocked && (
+  <Panel
+    title="Create Staff Login Account"
+    subtitle="Create a username and six-digit PIN for a staff member."
+  >
+    <form onSubmit={handleCreateStaff}>
+      <Field label="Staff full name">
+        <input
+          value={newStaffName}
+          onChange={e => setNewStaffName(e.target.value)}
+          required
+        />
+      </Field>
+
+      <Field label="Username">
+        <input
+          value={newStaffUsername}
+          onChange={e =>
+            setNewStaffUsername(
+              e.target.value.toLowerCase().trim()
+            )
+          }
+          autoComplete="off"
+          required
+        />
+      </Field>
+
+      <Field label="Six-digit PIN">
+        <input
+          type="password"
+          inputMode="numeric"
+          maxLength={6}
+          pattern="[0-9]{6}"
+          value={newStaffPin}
+          onChange={e =>
+            setNewStaffPin(
+              e.target.value.replace(/\D/g, "").slice(0, 6)
+            )
+          }
+          autoComplete="new-password"
+          required
+        />
+      </Field>
+
+      <Field label="Commission (%)">
+        <input
+          type="number"
+          min="0"
+          max="100"
+          step="0.01"
+          value={newStaffCommission}
+          onChange={e => setNewStaffCommission(e.target.value)}
+          required
+        />
+      </Field>
+
+      {staffCreateError && (
+        <p role="alert">{staffCreateError}</p>
+      )}
+
+      {staffCreateMessage && (
+        <p role="status">{staffCreateMessage}</p>
+      )}
+
+      <button className="btn primary" type="submit">
+        Create Staff Account
+      </button>
+    </form>
+  </Panel>
+)}
+ {managementTab==="Monthly Reports"&&<MonthlyReports sales={sales} staff={staff}/>}
 </>}
 
  {page==="New Sale"&&<NewSale staff={staff} services={services} cancel={()=>setPage("Sales History")} complete={s=>{saveSales([s,...sales]);flash("Sale saved: "+s.receiptNo);setPage("Sales History");}}/>}
