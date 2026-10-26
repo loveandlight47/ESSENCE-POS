@@ -18,6 +18,11 @@ function csvDownload(rows) {
 }
 function App() {
   const [page,setPage] = useState("New Sale");
+  const [staffSession, setStaffSession] = useState("");
+  const [staffUsername, setStaffUsername] = useState("");
+const [staffPin, setStaffPin] = useState("");
+const [staffProfile, setStaffProfile] = useState(null);
+const [staffLoginError, setStaffLoginError] = useState("");
 const [managerUnlocked,setManagerUnlocked] = useState(false);
 const [managementTab,setManagementTab] = useState("Dashboard");
   const [sales,setSales] = useState(()=>read(KEYS.sales,[]));
@@ -27,11 +32,132 @@ const [managementTab,setManagementTab] = useState("Dashboard");
   const saveSales=v=>{setSales(v);localStorage.setItem(KEYS.sales,JSON.stringify(v));};
   const saveStaff=v=>{setStaff(v);localStorage.setItem(KEYS.staff,JSON.stringify(v));};
   const saveServices=v=>{setServices(v);localStorage.setItem(KEYS.services,JSON.stringify(v));};
+  const handleStaffLogin = async (event) => {
+  event.preventDefault();
+  setStaffLoginError("");
+
+  try {
+    const { data, error } = await supabase.functions.invoke(
+      "staff-login",
+      {
+        body: {
+          username: staffUsername.trim().toLowerCase(),
+          pin: staffPin,
+        },
+      }
+    );
+
+    if (error) throw error;
+    if (!data?.token || !data?.profile) {
+      throw new Error(data?.error || "Login failed. Check your username and PIN.");
+    }
+
+    setStaffSession(data.token);
+    setStaffProfile(data.profile);
+    setStaffPin("");
+  } catch (error) {
+    setStaffLoginError(
+      error.message || "Unable to sign in. Please try again."
+    );
+  }
+};
+
   const flash=t=>{setNotice(t);window.setTimeout(()=>setNotice(""),2500);};
   const todaySales=sales.filter(s=>s.date===today());
   const filtered=useMemo(()=>sales.filter(s=>[s.receiptNo,s.customerName,s.paymentMethod,...(s.items||[]).map(i=>i.serviceName+" "+i.staffName)].join(" ").toLowerCase().includes(search.toLowerCase())&&(!dateFilter||s.date===dateFilter)),[sales,search,dateFilter]);
   const exportSales=list=>csvDownload([["Receipt","Date","Customer","Services","Staff","Subtotal","Discount","VAT","Total","Commission","Payment"],...list.map(s=>[s.receiptNo,s.date,s.customerName,(s.items||[]).map(i=>`${i.serviceName} x${i.quantity}`).join("; "),(s.items||[]).map(i=>i.staffName).join("; "),s.subtotal,s.discount,s.vat,s.total,s.commission,s.paymentMethod])]);
   const nav=[["Management",LayoutDashboard],["New Sale",ShoppingCart],["Sales History",ReceiptText],["Services",Scissors]];
+  
+if (staffSession && staffProfile) {
+  return (
+    <div className="shell">
+      <main className="main">
+        <header className="top">
+          <div>
+            <h1>Staff Portal</h1>
+            <p>Essence Unisex Salon & Spa</p>
+          </div>
+        </header>
+        <Panel
+          title={`Welcome, ${staffProfile.display_name || staffProfile.name || staffUsername}`}
+          subtitle="Your staff portal is being prepared."
+        >
+          <p>Signed in successfully.</p>
+          <button
+            className="btn"
+            onClick={async () => {
+              try {
+                await supabase.functions.invoke("staff-logout", {
+                  body: {},
+                  headers: { "x-staff-session": staffSession }
+                });
+              } finally {
+                setStaffSession("");
+                setStaffProfile(null);
+                setStaffUsername("");
+                setStaffPin("");
+                setPage("New Sale");
+              }
+            }}
+          >
+            Log out
+          </button>
+        </Panel>
+      </main>
+    </div>
+  );
+}
+
+if (!staffSession && !managerUnlocked) {
+  return (
+    <div className="shell">
+      <main className="main">
+        <Panel title="Essence Staff Login" subtitle="Sign in with your username and six-digit PIN.">
+          <form onSubmit={handleStaffLogin}>
+            <Field label="Username">
+              <input
+                autoComplete="username"
+                value={staffUsername}
+                onChange={e => setStaffUsername(e.target.value)}
+                required
+              />
+            </Field>
+            <Field label="Six-digit PIN">
+              <input
+                type="password"
+                inputMode="numeric"
+                autoComplete="current-password"
+                maxLength={6}
+                pattern="[0-9]{6}"
+                value={staffPin}
+                onChange={e => setStaffPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                required
+              />
+            </Field>
+            {staffLoginError && <p role="alert">{staffLoginError}</p>}
+            <button className="btn primary" type="submit">Sign in</button>
+          </form>
+          <button
+  type="button"
+  className="btn"
+  onClick={() => {
+    const code = window.prompt("Enter management access code");
+    if (code === MANAGER_ACCESS_CODE) {
+      setManagerUnlocked(true);
+      setPage("Management");
+    } else if (code !== null) {
+      alert("Incorrect access code.");
+    }
+  }}
+>
+  Manager Access
+</button>
+        </Panel>
+      </main>
+    </div>
+  );
+}
+
   return <div className="shell"><aside className="sidebar"><div className="brand"><span className="brandmark">E</span><div><b>ESSENCE</b><small>UNISEX SALON & SPA</small></div></div><nav>{nav.map(([n,I])=><button key={n} className={page===n?"nav active":"nav"} onClick={()=>{
   if(n==="Management"){
     const code=window.prompt("Enter management access code");
