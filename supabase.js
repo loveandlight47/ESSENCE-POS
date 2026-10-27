@@ -9,6 +9,6 @@ const supabaseKey =
   "sb_publishable_20iHe1HINY6s-yxcfb1lcw_88vakvmF";
 
 export const supabase = createClient(
-  https://ipgexqoxkyxdssahhkjm.supabase.co",
-  sb_publishable_20iHe1HINY6s-yxcfb1lcw_88vakvmF
+  supabaseUrl,
+  supabaseKey
 );
