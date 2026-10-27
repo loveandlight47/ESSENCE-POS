@@ -56,7 +56,13 @@ const [managementTab,setManagementTab] = useState("Dashboard");
       }
     );
 
-    if (error) throw error;
+    if (error) {
+  console.error("Staff provision request failed:", error);
+  setStaffCreateError(
+    error.message + (error.context ? " — Check browser console for details." : "")
+  );
+  return;
+}
     if (!data?.token || !data?.profile) {
       throw new Error(data?.error || "Login failed. Check your username and PIN.");
     }
