@@ -130,40 +130,63 @@ const handleCreateStaff = async (event) => {
   }
 
   try {
-    const { data, error } = await supabase.functions.invoke(
-      "staff-provision",
-      {
-        body: {
-          display_name: newStaffName.trim(),
-          username: newStaffUsername.trim().toLowerCase(),
-          pin: newStaffPin,
-          commission_rate: commission,
-        },
-      }
-    );
+  const {
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession();
 
-    if (error) {
-  const details = await error.context?.text?.().catch(() => "");
-  setStaffCreateError(
-    `${error.message}${details ? `: ${details}` : ""}`
-  );
-  return;
-}
-    if (data?.error) throw new Error(data.error);
+  if (sessionError) throw sessionError;
 
-    setStaffCreateMessage(
-      `Account created for ${newStaffName.trim()}.`
-    );
-    setNewStaffName("");
-    setNewStaffUsername("");
-    setNewStaffPin("");
-    setNewStaffCommission("30");
-  } catch (error) {
-    setStaffCreateError(
-      error.message || "Could not create the staff account."
+  if (!session?.access_token) {
+    throw new Error(
+      "Manager session missing. Please sign in again."
     );
   }
-};
+
+  const { data, error } = await supabase.functions.invoke(
+    "staff-provision",
+    {
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: {
+        display_name: newStaffName.trim(),
+        username: newStaffUsername.trim().toLowerCase(),
+        pin: newStaffPin,
+        commission_rate: commission,
+      },
+    }
+  );
+
+  if (error) {
+    let details = "";
+
+    if (error.context instanceof Response) {
+      details = await error.context
+        .clone()
+        .text()
+        .catch(() => "");
+    }
+
+    throw new Error(
+      `${error.message}${details ? `: ${details}` : ""}`
+    );
+  }
+
+  if (data?.error) throw new Error(data.error);
+
+  setStaffCreateMessage(
+    `Account created for ${newStaffName.trim()}.`
+  );
+  setNewStaffName("");
+  setNewStaffUsername("");
+  setNewStaffPin("");
+  setNewStaffCommission("30");
+} catch (error) {
+  setStaffCreateError(
+    error.message || "Could not create the staff account."
+  );
+}
 
   const flash=t=>{setNotice(t);window.setTimeout(()=>setNotice(""),2500);};
   const todaySales=sales.filter(s=>s.date===today());
