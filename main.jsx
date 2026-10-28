@@ -142,7 +142,13 @@ const handleCreateStaff = async (event) => {
       }
     );
 
-    if (error) throw error;
+    if (error) {
+  const details = await error.context?.text?.().catch(() => "");
+  setStaffCreateError(
+    `${error.message}${details ? `: ${details}` : ""}`
+  );
+  return;
+}
     if (data?.error) throw new Error(data.error);
 
     setStaffCreateMessage(
