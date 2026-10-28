@@ -187,8 +187,9 @@ const handleCreateStaff = async (event) => {
     error.message || "Could not create the staff account."
   );
 }
+};
 
-  const flash=t=>{setNotice(t);window.setTimeout(()=>setNotice(""),2500);};
+const flash=t=>{setNotice(t);window.setTimeout(()=>setNotice(""),2500);};
   const todaySales=sales.filter(s=>s.date===today());
   const filtered=useMemo(()=>sales.filter(s=>[s.receiptNo,s.customerName,s.paymentMethod,...(s.items||[]).map(i=>i.serviceName+" "+i.staffName)].join(" ").toLowerCase().includes(search.toLowerCase())&&(!dateFilter||s.date===dateFilter)),[sales,search,dateFilter]);
   const exportSales=list=>csvDownload([["Receipt","Date","Customer","Services","Staff","Subtotal","Discount","VAT","Total","Commission","Payment"],...list.map(s=>[s.receiptNo,s.date,s.customerName,(s.items||[]).map(i=>`${i.serviceName} x${i.quantity}`).join("; "),(s.items||[]).map(i=>i.staffName).join("; "),s.subtotal,s.discount,s.vat,s.total,s.commission,s.paymentMethod])]);
