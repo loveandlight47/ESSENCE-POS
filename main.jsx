@@ -112,81 +112,130 @@ const handleManagerSignIn = async (event) => {
   }
 };
 
+
 const handleCreateStaff = async (event) => {
   event.preventDefault();
   setStaffCreateMessage("");
   setStaffCreateError("");
 
-  if (!/^\d{6}$/.test(newStaffPin)) {
-    setStaffCreateError("The staff PIN must contain exactly six digits.");
+  const displayName = newStaffName.trim();
+  const username = newStaffUsername.trim().toLowerCase();
+  const pin = newStaffPin;
+  const commission = Number(newStaffCommission);
+
+  if (!displayName) {
+    setStaffCreateError("Enter the staff member's name.");
     return;
   }
 
-  const commission = Number(newStaffCommission);
+  if (!/^[a-z0-9_]{3,30}$/.test(username)) {
+    setStaffCreateError(
+      "Username must contain 3–30 lowercase letters, numbers or underscores."
+    );
+    return;
+  }
 
-  if (!Number.isFinite(commission) || commission < 0 || commission > 100) {
+  if (!/^\d{6}$/.test(pin)) {
+    setStaffCreateError("PIN must contain exactly six digits.");
+    return;
+  }
+
+  if (
+    !Number.isFinite(commission) ||
+    commission < 0 ||
+    commission > 100
+  ) {
     setStaffCreateError("Commission must be between 0 and 100.");
     return;
   }
 
   try {
-  const {
-    data: { session },
-    error: sessionError,
-  } = await supabase.auth.getSession();
+    // 1. Confirm that the manager is signed in.
+    const {
+      data: { session },
+      error: sessionError
+    } = await supabase.auth.getSession();
 
-  if (sessionError) throw sessionError;
-
-  if (!session?.access_token) {
-    throw new Error(
-      "Manager session missing. Please sign in again."
-    );
-  }
-
-  const { data, error } = await supabase.functions.invoke(
-    "staff-provision",
-    {
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: {
-        display_name: newStaffName.trim(),
-        username: newStaffUsername.trim().toLowerCase(),
-        pin: newStaffPin,
-        commission_rate: commission,
-      },
-    }
-  );
-
-  if (error) {
-    let details = "";
-
-    if (error.context instanceof Response) {
-      details = await error.context
-        .clone()
-        .text()
-        .catch(() => "");
+    if (sessionError) {
+      throw new Error("Could not check manager session: " + sessionError.message);
     }
 
-    throw new Error(
-      `${error.message}${details ? `: ${details}` : ""}`
+    if (!session?.access_token) {
+      throw new Error("Manager session expired. Please sign in again.");
+    }
+
+    // 2. Get the Supabase project URL and public anon key.
+    const projectUrl = supabase.supabaseUrl;
+    const anonKey = supabase.supabaseKey;
+
+    if (!projectUrl || !anonKey) {
+      throw new Error(
+        "Supabase configuration is missing. Check supabase.js."
+      );
+    }
+
+    // 3. Send the request directly to the Edge Function.
+    const response = await fetch(
+      `${projectUrl.replace(/\/$/, "")}/functions/v1/staff-provision`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": anonKey,
+          "Authorization": `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          display_name: displayName,
+          username: username,
+          pin: pin,
+          commission_rate: commission
+        })
+      }
+    );
+
+    // 4. Read the server response.
+    const responseText = await response.text();
+
+    let result = {};
+
+    try {
+      result = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      result = { error: responseText || "Supabase returned an unreadable response." };
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        `Supabase returned HTTP ${response.status}: ${
+          result.error || result.message || responseText || "Request failed."
+        }`
+      );
+    }
+
+    if (result.error || result.success !== true) {
+      throw new Error(
+        result.error || "The staff account was not confirmed as created."
+      );
+    }
+
+    // 5. Confirm success and clear the form.
+    setStaffCreateMessage(
+      `Staff login account created successfully for ${displayName}.`
+    );
+
+    setNewStaffName("");
+    setNewStaffUsername("");
+    setNewStaffPin("");
+    setNewStaffCommission("30");
+
+  } catch (error) {
+    console.error("STAFF ACCOUNT CREATION ERROR:", error);
+
+    setStaffCreateError(
+      error.message ||
+      "Unable to contact Supabase. Please try again."
     );
   }
-
-  if (data?.error) throw new Error(data.error);
-
-  setStaffCreateMessage(
-    `Account created for ${newStaffName.trim()}.`
-  );
-  setNewStaffName("");
-  setNewStaffUsername("");
-  setNewStaffPin("");
-  setNewStaffCommission("30");
-} catch (error) {
-  setStaffCreateError(
-    error.message || "Could not create the staff account."
-  );
-}
 };
 
 const flash=t=>{setNotice(t);window.setTimeout(()=>setNotice(""),2500);};
