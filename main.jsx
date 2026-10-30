@@ -41,13 +41,13 @@ const [managementTab,setManagementTab] = useState("Dashboard");
   const saveSales=v=>{setSales(v);localStorage.setItem(KEYS.sales,JSON.stringify(v));};
   const saveStaff=v=>{setStaff(v);localStorage.setItem(KEYS.staff,JSON.stringify(v));};
   const saveServices=v=>{setServices(v);localStorage.setItem(KEYS.services,JSON.stringify(v));};
-  const handleStaffLogin = async (event) => {
+const handleStaffLogin = async (event) => {
   event.preventDefault();
   setStaffLoginError("");
 
   try {
     const { data, error } = await supabase.functions.invoke(
-      "staff-login",
+      "Staff-login",
       {
         body: {
           username: staffUsername.trim().toLowerCase(),
@@ -57,20 +57,23 @@ const [managementTab,setManagementTab] = useState("Dashboard");
     );
 
     if (error) {
-  console.error("Staff provision request failed:", error);
-  setStaffCreateError(
-    error.message + (error.context ? " — Check browser console for details." : "")
-  );
-  return;
-}
+      console.error("Staff login request failed:", error);
+      throw new Error(
+        error.message || "Staff login request failed."
+      );
+    }
+
     if (!data?.token || !data?.profile) {
-      throw new Error(data?.error || "Login failed. Check your username and PIN.");
+      throw new Error(
+        data?.error || "Login failed. Check your username and PIN."
+      );
     }
 
     setStaffSession(data.token);
     setStaffProfile(data.profile);
     setStaffPin("");
   } catch (error) {
+    console.error("STAFF LOGIN ERROR:", error);
     setStaffLoginError(
       error.message || "Unable to sign in. Please try again."
     );
