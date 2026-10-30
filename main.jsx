@@ -41,6 +41,7 @@ const [managementTab,setManagementTab] = useState("Dashboard");
   const saveSales=v=>{setSales(v);localStorage.setItem(KEYS.sales,JSON.stringify(v));};
   const saveStaff=v=>{setStaff(v);localStorage.setItem(KEYS.staff,JSON.stringify(v));};
   const saveServices=v=>{setServices(v);localStorage.setItem(KEYS.services,JSON.stringify(v));};
+
 const handleStaffLogin = async (event) => {
   event.preventDefault();
   setStaffLoginError("");
@@ -58,20 +59,20 @@ const handleStaffLogin = async (event) => {
 
     if (error) {
       console.error("Staff login request failed:", error);
-      throw new Error(
-        error.message || "Staff login request failed."
-      );
+      throw new Error(error.message || "Staff login request failed.");
     }
 
-    if (!data?.token || !data?.profile) {
+    if (!data?.token || !data?.staff) {
       throw new Error(
-        data?.error || "Login failed. Check your username and PIN."
+        data?.error || "Login response is missing staff details."
       );
     }
 
     setStaffSession(data.token);
-    setStaffProfile(data.profile);
+    setStaffProfile(data.staff);
     setStaffPin("");
+    setStaffLoginError("");
+
   } catch (error) {
     console.error("STAFF LOGIN ERROR:", error);
     setStaffLoginError(
