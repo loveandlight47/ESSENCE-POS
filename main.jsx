@@ -104,6 +104,14 @@ const handleManagerSignIn = async (event) => {
 
     setManagerPassword("");
     setManagerUnlocked(true);
+    const {
+  data: { session },
+} = await supabase.auth.getSession();
+
+console.log(
+  "Manager session available:",
+  Boolean(session?.access_token)
+);
     setPage("Management");
   } catch (error) {
     setManagerAuthError(
