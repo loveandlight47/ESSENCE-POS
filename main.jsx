@@ -364,15 +364,13 @@ if (!staffSession && !managerUnlocked) {
     const code=window.prompt("Enter management access code");
     if(code===MANAGER_ACCESS_CODE){
       setManagerUnlocked(true);
-const {
-  data: { session },
-} = await supabase.auth.getSession();
-
-setStaffCreateError(
-  session?.access_token
-    ? "Diagnostic: Manager session is active."
-    : "Diagnostic: No manager session found."
-);
+supabase.auth.getSession().then(({ data: { session } }) => {
+  setStaffCreateError(
+    session?.access_token
+      ? "Diagnostic: Manager session is active."
+      : "Diagnostic: No manager session found."
+  );
+});
 
 setPage("Management");
     }else if(code!==null){
