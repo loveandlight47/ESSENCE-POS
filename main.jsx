@@ -183,7 +183,7 @@ const handleCreateStaff = async (event) => {
 
     // 3. Send the request directly to the Edge Function.
     const response = await fetch(
-      `${projectUrl.replace(/\/$/, "")}/functions/v1/staff-provision`,
+      `${projectUrl.replace(/\/$/, "")}/functions/v1/Staff-provision`,,
       {
         method: "POST",
         headers: {
