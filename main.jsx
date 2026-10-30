@@ -104,14 +104,13 @@ const handleManagerSignIn = async (e) => {
 
     setManagerPassword("");
     setManagerUnlocked(true);
-    const {
-  data: { session },
-} = await supabase.auth.getSession();
-
-console.log(
-  "Manager session available:",
-  Boolean(session?.access_token)
-);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+  setStaffCreateError(
+    session?.access_token
+      ? "Diagnostic: Manager session is active."
+      : "Diagnostic: No manager session found."
+  );
+});
     setPage("Management");
   } catch (error) {
     setManagerAuthError(
