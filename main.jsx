@@ -77,7 +77,7 @@ const [managementTab,setManagementTab] = useState("Dashboard");
   }
 };
 
-const handleManagerSignIn = async (event) => {
+const handleManagerSignIn = async (e) => {
   event.preventDefault();
   setManagerAuthError("");
 
