@@ -665,7 +665,7 @@ setPage("Management");
 </>}
 
  {page==="New Sale"&&<NewSale staff={staff} services={services} cancel={()=>setPage("Sales History")} complete={completeSale}/>}
-  {page==="Sales History"&&<History sales={filtered} search={search} setSearch={setSearch} date={dateFilter} setDate={setDateFilter} exportIt={()=>exportSales(filtered)} remove={handleDeleteSale}
+  {page==="Sales History"&&<History sales={filtered} search={search} setSearch={setSearch} date={dateFilter} setDate={setDateFilter} exportIt={()=>exportSales(filtered)} remove={handleDeleteSale}/>}
   {page==="Services"&&<Services services={services} save={saveServices} flash={flash}/>}
   <footer>Essence Salon POS · Export your sales regularly for backup.</footer></main></div>;
 }
