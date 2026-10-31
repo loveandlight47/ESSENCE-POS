@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { LayoutDashboard, ShoppingCart, ReceiptText, Users, Scissors, Download, Plus, Trash2, Printer, Search, Pencil, X, Check, Wallet, Percent, CalendarDays, RotateCcw, FileSpreadsheet } from "lucide-react";
 import "./styles.css";
@@ -35,12 +35,228 @@ const [staffCreateError, setStaffCreateError] = useState("");
 const [managerUnlocked,setManagerUnlocked] = useState(false);
 const [managementTab,setManagementTab] = useState("Dashboard");
   const [sales,setSales] = useState(()=>read(KEYS.sales,[]));
-  const [staff,setStaff] = useState(()=>read(KEYS.staff,[]).map(p=>typeof p==="string"?{id:uid(),name:p,commissionRate:DEFAULT_COMMISSION}:{id:p.id||uid(),name:p.name||"",commissionRate:Number(p.commissionRate??DEFAULT_COMMISSION)}));
+  const [staff,setStaff] = useState([]);
   const [services,setServices] = useState(()=>read(KEYS.services,[]).map(s=>({...s,id:s.id||uid(),price:Number(s.price)||0})));
   const [notice,setNotice] = useState(""), [search,setSearch] = useState(""), [dateFilter,setDateFilter] = useState(today());
   const saveSales=v=>{setSales(v);localStorage.setItem(KEYS.sales,JSON.stringify(v));};
   const saveStaff=v=>{setStaff(v);localStorage.setItem(KEYS.staff,JSON.stringify(v));};
   const saveServices=v=>{setServices(v);localStorage.setItem(KEYS.services,JSON.stringify(v));};
+  
+const handleDeleteSale = async (saleId, password) => {
+  if (!managerEmail.trim()) {
+    throw new Error("Manager email is missing. Please sign in again.");
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: managerEmail.trim(),
+    password
+  });
+
+  if (error) {
+    throw new Error("Incorrect manager password. Sale was not deleted.");
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("staff_profiles")
+    .select("role")
+    .eq("id", data.user.id)
+    .single();
+
+  if (profileError || profile?.role !== "manager") {
+    throw new Error("Manager authorisation failed. Sale was not deleted.");
+  }
+
+  const { error: deleteError } = await supabase
+    .from("pos_sales")
+    .delete()
+    .eq("id", saleId);
+
+  if (deleteError) {
+    console.error("SALE DELETION ERROR:", deleteError);
+    throw new Error("Could not delete sale: " + deleteError.message);
+  }
+
+  saveSales(sales.filter(s => s.id !== saleId));
+  flash("Sale deleted successfully.");
+  return true;
+};
+  
+const completeSale = async (s) => {
+  try {
+    const { data: { session }, error: sessionError } =
+      await supabase.auth.getSession();
+
+    if (sessionError) throw sessionError;
+
+    if (!session?.access_token) {
+      throw new Error("Manager session expired. Please sign in again.");
+    }
+
+    const { data: saleRow, error: saleError } = await supabase
+      .from("pos_sales")
+      .insert({
+        receipt_no: s.receiptNo,
+        sale_date: s.date,
+        customer_name: s.customerName,
+        payment_method: s.paymentMethod,
+        subtotal: s.subtotal,
+        discount: s.discount,
+        vat: s.vat,
+        total: s.total,
+        commission: s.commission
+      })
+      .select("id")
+      .single();
+
+    if (saleError) throw saleError;
+
+    const saleItems = s.items.map(i => ({
+      sale_id: saleRow.id,
+      staff_id: i.staffId,
+      service_name: i.serviceName,
+      quantity: i.quantity,
+      unit_price: i.unitPrice,
+      commission_rate: i.commissionRate,
+      commission_amount: i.commissionAmount
+    }));
+
+    const { error: itemsError } = await supabase
+      .from("pos_sale_items")
+      .insert(saleItems);
+
+    if (itemsError) {
+      await supabase
+        .from("pos_sales")
+        .delete()
+        .eq("id", saleRow.id);
+
+      throw itemsError;
+    }
+
+    saveSales([{ ...s, id: saleRow.id }, ...sales]);
+    flash("Sale saved: " + s.receiptNo);
+    setPage("Sales History");
+
+  } catch (error) {
+    console.error("SALE SAVE ERROR:", error);
+    alert(error.message || "Unable to save sale. Please try again.");
+  }
+};
+
+  useEffect(() => {
+  let active = true;
+
+  const loadStaff = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session) return;
+
+    const { data, error } = await supabase
+      .from("staff_profiles")
+      .select("id, display_name, commission_rate")
+      .eq("role", "staff")
+      .order("display_name");
+
+    if (!active) return;
+
+    if (error) {
+      console.error("Could not load staff:", error);
+      setStaffCreateError("Could not load staff accounts from Supabase.");
+      return;
+    }
+
+    const loadedStaff = (data || []).map(person => ({
+      id: person.id,
+      name: person.display_name,
+      commissionRate: Number(person.commission_rate ?? 30)
+    }));
+
+    setStaff(loadedStaff);
+    localStorage.setItem(KEYS.staff, JSON.stringify(loadedStaff));
+  };
+
+  loadStaff();
+
+  return () => {
+    active = false;
+  };
+}, []);
+  
+useEffect(() => {
+  let active = true;
+
+  
+const loadSales = async () => {
+  const { data: { session }, error: sessionError } =
+    await supabase.auth.getSession();
+
+  if (sessionError) {
+    console.error("Could not check manager session:", sessionError);
+    return;
+  }
+
+  if (!session) return;
+
+  const { data: salesData, error: salesError } = await supabase
+    .from("pos_sales")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (!active) return;
+
+  if (salesError) {
+    console.error("Could not load sales:", salesError);
+    return;
+  }
+
+  const { data: itemsData, error: itemsError } = await supabase
+    .from("pos_sale_items")
+    .select("*");
+
+  if (!active) return;
+
+  if (itemsError) {
+    console.error("Could not load sale items:", itemsError);
+    return;
+  }
+
+  const loadedSales = (salesData || []).map(s => ({
+    id: s.id,
+    receiptNo: s.receipt_no,
+    date: s.sale_date,
+    customerName: s.customer_name,
+    paymentMethod: s.payment_method,
+    subtotal: Number(s.subtotal || 0),
+    discount: Number(s.discount || 0),
+    vat: Number(s.vat || 0),
+    total: Number(s.total || 0),
+    commission: Number(s.commission || 0),
+    status: "Paid",
+    items: (itemsData || [])
+      .filter(i => i.sale_id === s.id)
+      .map(i => ({
+        id: i.id,
+        staffId: i.staff_id,
+        serviceName: i.service_name,
+        quantity: Number(i.quantity || 1),
+        unitPrice: Number(i.unit_price || 0),
+        commissionRate: Number(i.commission_rate || 0),
+        commissionAmount: Number(i.commission_amount || 0)
+      }))
+  }));
+
+  setSales(loadedSales);
+  localStorage.setItem(KEYS.sales, JSON.stringify(loadedSales));
+};
+
+
+  loadSales();
+
+  return () => {
+    active = false;
+  };
+}, []);
+
 
 const handleStaffLogin = async (event) => {
   event.preventDefault();
@@ -81,8 +297,8 @@ const handleStaffLogin = async (event) => {
   }
 };
 
-const handleManagerSignIn = async (e) => {
-  event.preventDefault();
+  (e) => {
+  e.preventDefault();
   setManagerAuthError("");
 
   try {
@@ -108,20 +324,17 @@ const handleManagerSignIn = async (e) => {
 
     setManagerPassword("");
     setManagerUnlocked(true);
-    supabase.auth.getSession().then(({ data: { session } }) => {
-  setStaffCreateError(
-    session?.access_token
-      ? "Diagnostic: Manager session is active."
-      : "Diagnostic: No manager session found."
-  );
-});
     setPage("Management");
+
   } catch (error) {
     setManagerAuthError(
       error.message || "Manager sign-in failed. Please try again."
     );
   }
 };
+
+
+
 
 
 const handleCreateStaff = async (event) => {
@@ -140,9 +353,7 @@ const handleCreateStaff = async (event) => {
   }
 
   if (!/^[a-z0-9_]{3,30}$/.test(username)) {
-    setStaffCreateError(
-      "Username must contain 3–30 lowercase letters, numbers or underscores."
-    );
+    setStaffCreateError("Username must contain 3–30 lowercase letters, numbers or underscores.");
     return;
   }
 
@@ -151,41 +362,35 @@ const handleCreateStaff = async (event) => {
     return;
   }
 
-  if (
-    !Number.isFinite(commission) ||
-    commission < 0 ||
-    commission > 100
-  ) {
+  if (!Number.isFinite(commission) || commission < 0 || commission > 100) {
     setStaffCreateError("Commission must be between 0 and 100.");
     return;
   }
 
+  if (staff.some(p => p.username?.toLowerCase() === username)) {
+    setStaffCreateError("That username is already in the POS staff list.");
+    return;
+  }
+
   try {
-    // 1. Confirm that the manager is signed in.
     const {
       data: { session },
       error: sessionError
     } = await supabase.auth.getSession();
 
-    if (sessionError) {
-      throw new Error("Could not check manager session: " + sessionError.message);
-    }
+    if (sessionError) throw new Error(sessionError.message);
 
     if (!session?.access_token) {
       throw new Error("Manager session expired. Please sign in again.");
     }
 
-    // 2. Get the Supabase project URL and public anon key.
     const projectUrl = supabase.supabaseUrl;
     const anonKey = supabase.supabaseKey;
 
     if (!projectUrl || !anonKey) {
-      throw new Error(
-        "Supabase configuration is missing. Check supabase.js."
-      );
+      throw new Error("Supabase configuration is missing.");
     }
 
-    // 3. Send the request directly to the Edge Function.
     const response = await fetch(
       `${projectUrl.replace(/\/$/, "")}/functions/v1/Staff-provision`,
       {
@@ -197,41 +402,39 @@ const handleCreateStaff = async (event) => {
         },
         body: JSON.stringify({
           display_name: displayName,
-          username: username,
-          pin: pin,
+          username,
+          pin,
           commission_rate: commission
         })
       }
     );
 
-    // 4. Read the server response.
     const responseText = await response.text();
-
     let result = {};
 
     try {
       result = responseText ? JSON.parse(responseText) : {};
     } catch {
-      result = { error: responseText || "Supabase returned an unreadable response." };
+      throw new Error("Supabase returned an unreadable response.");
     }
 
-    if (!response.ok) {
+    if (!response.ok || result.success !== true || !result.staff?.id) {
       throw new Error(
-        `Supabase returned HTTP ${response.status}: ${
-          result.error || result.message || responseText || "Request failed."
-        }`
+        result.error || `Staff account creation failed (HTTP ${response.status}).`
       );
     }
 
-    if (result.error || result.success !== true) {
-      throw new Error(
-        result.error || "The staff account was not confirmed as created."
-      );
-    }
+    const newStaff = {
+      id: result.staff.id,
+      name: result.staff.display_name,
+      commissionRate: Number(result.staff.commission_rate ?? commission),
+      username: result.staff.username
+    };
 
-    // 5. Confirm success and clear the form.
+    saveStaff([...staff, newStaff]);
+
     setStaffCreateMessage(
-      `Staff login account created successfully for ${displayName}.`
+      `${displayName}'s login account has been created and added to POS.`
     );
 
     setNewStaffName("");
@@ -241,13 +444,10 @@ const handleCreateStaff = async (event) => {
 
   } catch (error) {
     console.error("STAFF ACCOUNT CREATION ERROR:", error);
-
-    setStaffCreateError(
-      error.message ||
-      "Unable to contact Supabase. Please try again."
-    );
+    setStaffCreateError(error.message || "Unable to create staff account.");
   }
 };
+
 
 const flash=t=>{setNotice(t);window.setTimeout(()=>setNotice(""),2500);};
   const todaySales=sales.filter(s=>s.date===today());
@@ -469,8 +669,8 @@ setPage("Management");
  {managementTab==="Monthly Reports"&&<MonthlyReports sales={sales} staff={staff}/>}
 </>}
 
- {page==="New Sale"&&<NewSale staff={staff} services={services} cancel={()=>setPage("Sales History")} complete={s=>{saveSales([s,...sales]);flash("Sale saved: "+s.receiptNo);setPage("Sales History");}}/>}
-  {page==="Sales History"&&<History sales={filtered} search={search} setSearch={setSearch} date={dateFilter} setDate={setDateFilter} exportIt={()=>exportSales(filtered)} remove={id=>{if(confirm("Delete this sale permanently?")){saveSales(sales.filter(s=>s.id!==id));flash("Sale deleted.");}}}/>}
+ {page==="New Sale"&&<NewSale staff={staff} services={services} cancel={()=>setPage("Sales History")} complete={completeSale}/>}
+  {page==="Sales History"&&<History sales={filtered} search={search} setSearch={setSearch} date={dateFilter} setDate={setDateFilter} exportIt={()=>exportSales(filtered)} remove={handleDeleteSale}
   {page==="Services"&&<Services services={services} save={saveServices} flash={flash}/>}
   <footer>Essence Salon POS · Export your sales regularly for backup.</footer></main></div>;
 }
@@ -502,10 +702,138 @@ function NewSale({staff,services,cancel,complete}) {
 <div><span>Salon balance after deductions</span><b>{money(salonBalance)}</b></div>
 </div></div><div className="actions end"><button type="button" className="btn" onClick={cancel}>Cancel</button><button className="btn primary" type="submit"><Check size={16}/> Complete Sale</button></div></form></Panel>;
 }
+
 function History({sales,search,setSearch,date,setDate,exportIt,remove}) {
- const [receipt,setReceipt]=useState(null);
- return <><Panel title="Sales History" subtitle="Search, review, print receipts, and export transactions."><div className="filters"><label className="search"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search receipt, customer, service or staff"/></label><Field label="Date"><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></Field><button className="btn" onClick={()=>{setSearch("");setDate("");}}><RotateCcw size={15}/> Reset</button><button className="btn" onClick={exportIt}><Download size={15}/> Export CSV</button></div><Table headers={["Receipt","Date","Customer","Total","Payment","Actions"]}>{sales.map(s=><tr key={s.id}><td>{s.receiptNo}</td><td>{s.date}</td><td>{s.customerName}</td><td>{money(s.total)}</td><td>{s.paymentMethod}</td><td><div className="inline"><button className="iconbtn" onClick={()=>setReceipt(s)} title="Receipt"><ReceiptText size={15}/></button><button className="iconbtn danger" onClick={()=>remove(s.id)} title="Delete"><Trash2 size={15}/></button></div></td></tr>)}{!sales.length&&<tr><td colSpan="6" className="empty">No sales match these filters.</td></tr>}</Table></Panel>{receipt&&<ReceiptModal sale={receipt} close={()=>setReceipt(null)}/>}</>;
+  const [receipt,setReceipt] = useState(null);
+  const [pendingDelete,setPendingDelete] = useState(null);
+  const [managerPassword,setManagerPassword] = useState("");
+  const [deleteError,setDeleteError] = useState("");
+  const [deleting,setDeleting] = useState(false);
+
+  const confirmDelete = async (event) => {
+    event.preventDefault();
+    setDeleteError("");
+
+    if (!managerPassword) {
+      setDeleteError("Enter the manager password.");
+      return;
+    }
+
+    setDeleting(true);
+
+    try {
+      const success = await remove(pendingDelete.id, managerPassword);
+
+      if (success) {
+        setPendingDelete(null);
+        setManagerPassword("");
+      } else {
+        setDeleteError("Sale was not deleted. Please try again.");
+      }
+    } catch (error) {
+      setDeleteError(error.message || "Unable to delete sale.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return <>
+    <Panel title="Sales History" subtitle="Search, review, print receipts, and export transactions.">
+      <div className="filters">
+        <label className="search">
+          <Search size={16}/>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search receipt, customer, service or staff"/>
+        </label>
+        <Field label="Date">
+          <input type="date" value={date} onChange={e=>setDate(e.target.value)}/>
+        </Field>
+        <button className="btn" onClick={()=>{setSearch("");setDate("");}}>
+          <RotateCcw size={15}/> Reset
+        </button>
+        <button className="btn" onClick={exportIt}>
+          <Download size={15}/> Export CSV
+        </button>
+      </div>
+
+      <Table headers={["Receipt","Date","Customer","Total","Payment","Actions"]}>
+        {sales.map(s=><tr key={s.id}>
+          <td>{s.receiptNo}</td>
+          <td>{s.date}</td>
+          <td>{s.customerName}</td>
+          <td>{money(s.total)}</td>
+          <td>{s.paymentMethod}</td>
+          <td>
+            <div className="inline">
+              <button className="iconbtn" onClick={()=>setReceipt(s)} title="Receipt">
+                <ReceiptText size={15}/>
+              </button>
+              <button
+                className="iconbtn danger"
+                onClick={()=>{
+                  setPendingDelete(s);
+                  setManagerPassword("");
+                  setDeleteError("");
+                }}
+                title="Delete"
+              >
+                <Trash2 size={15}/>
+              </button>
+            </div>
+          </td>
+        </tr>)}
+        {!sales.length&&<tr><td colSpan="6" className="empty">No sales match these filters.</td></tr>}
+      </Table>
+    </Panel>
+
+    {receipt&&<ReceiptModal sale={receipt} close={()=>setReceipt(null)}/>}
+
+    {pendingDelete&&
+      <div className="overlay">
+        <section className="receipt">
+          <h2>Manager authorisation</h2>
+          <p>
+            Enter the manager password to permanently delete receipt
+            <b> {pendingDelete.receiptNo}</b>.
+          </p>
+
+          <form onSubmit={confirmDelete}>
+            <Field label="Manager password">
+              <input
+                type="password"
+                value={managerPassword}
+                onChange={e=>setManagerPassword(e.target.value)}
+                placeholder="Enter manager password"
+                autoComplete="current-password"
+                required
+              />
+            </Field>
+
+            {deleteError&&<p className="error">{deleteError}</p>}
+
+            <div className="actions end">
+              <button
+                type="button"
+                className="btn"
+                disabled={deleting}
+                onClick={()=>{
+                  setPendingDelete(null);
+                  setManagerPassword("");
+                  setDeleteError("");
+                }}
+              >
+                Cancel
+              </button>
+              <button className="btn danger" type="submit" disabled={deleting}>
+                {deleting ? "Verifying..." : "Verify and delete"}
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+    }
+  </>;
 }
+
 function Services({services,save,flash}) {
  const [name,setName]=useState(""),[price,setPrice]=useState(""),[editing,setEditing]=useState(null);
  const reset=()=>{setName("");setPrice("");setEditing(null);};
