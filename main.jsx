@@ -297,7 +297,7 @@ const handleStaffLogin = async (event) => {
   }
 };
 
-  (e) => {
+const handleManagerSignIn = async (e) => {
   e.preventDefault();
   setManagerAuthError("");
 
@@ -325,17 +325,12 @@ const handleStaffLogin = async (event) => {
     setManagerPassword("");
     setManagerUnlocked(true);
     setPage("Management");
-
   } catch (error) {
     setManagerAuthError(
       error.message || "Manager sign-in failed. Please try again."
     );
   }
 };
-
-
-
-
 
 const handleCreateStaff = async (event) => {
   event.preventDefault();
