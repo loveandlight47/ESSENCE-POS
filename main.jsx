@@ -452,41 +452,26 @@ const flash=t=>{setNotice(t);window.setTimeout(()=>setNotice(""),2500);};
   
 if (staffSession && staffProfile) {
   return (
-    <div className="shell">
-      <main className="main">
-        <header className="top">
-          <div>
-            <h1>Staff Portal</h1>
-            <p>Essence Unisex Salon & Spa</p>
-          </div>
-        </header>
-        <Panel
-          title={`Welcome, ${staffProfile.display_name || staffProfile.name || staffUsername}`}
-          subtitle="Your staff portal is being prepared."
-        >
-          <p>Signed in successfully.</p>
-          <button
-            className="btn"
-            onClick={async () => {
-              try {
-                await supabase.functions.invoke("staff-logout", {
-                  body: {},
-                  headers: { "x-staff-session": staffSession }
-                });
-              } finally {
-                setStaffSession("");
-                setStaffProfile(null);
-                setStaffUsername("");
-                setStaffPin("");
-                setPage("New Sale");
-              }
-            }}
-          >
-            Log out
-          </button>
-        </Panel>
-      </main>
-    </div>
+    <StaffPortal
+      staffSession={staffSession}
+      staffProfile={staffProfile}
+      onLogout={async () => {
+        try {
+          await supabase.functions.invoke("staff-logout", {
+            body: {},
+            headers: { "x-staff-session": staffSession }
+          });
+        } catch (error) {
+          console.error("Staff logout error:", error);
+        } finally {
+          setStaffSession("");
+          setStaffProfile(null);
+          setStaffUsername("");
+          setStaffPin("");
+          setPage("New Sale");
+        }
+      }}
+    />
   );
 }
 
@@ -668,6 +653,220 @@ setPage("Management");
   {page==="Sales History"&&<History sales={filtered} search={search} setSearch={setSearch} date={dateFilter} setDate={setDateFilter} exportIt={()=>exportSales(filtered)} remove={handleDeleteSale}/>}
   {page==="Services"&&<Services services={services} save={saveServices} flash={flash}/>}
   <footer>Essence Salon POS · Export your sales regularly for backup.</footer></main></div>;
+}
+function StaffPortal({ staffSession, staffProfile, onLogout }) {
+  const [sales, setSales] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [month, setMonth] = useState(
+    new Date().getFullYear() + "-" +
+    String(new Date().getMonth() + 1).padStart(2, "0")
+  );
+
+  useEffect(() => {
+    let active = true;
+
+    const loadMySales = async () => {
+      setLoading(true);
+      setError("");
+
+      try {
+        const { data, error } = await supabase.functions.invoke(
+          "staff-my-sales",
+          {
+            body: {},
+            headers: {
+              "x-staff-session": staffSession
+            }
+          }
+        );
+
+        if (error) throw error;
+
+        if (data?.success === false) {
+          throw new Error(data.error || "Could not load your sales.");
+        }
+
+        const rows = Array.isArray(data)
+          ? data
+          : data?.sales || data?.items || data?.data || [];
+
+        if (!Array.isArray(rows)) {
+          throw new Error("The sales response has an unexpected format.");
+        }
+
+        if (active) setSales(rows);
+      } catch (err) {
+        console.error("MY SALES ERROR:", err);
+        if (active) {
+          setError(err.message || "Unable to load your sales.");
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    loadMySales();
+
+    return () => {
+      active = false;
+    };
+  }, [staffSession]);
+
+  const getSale = item =>
+    item.pos_sales || item.sale || item.sales || item;
+
+  const getDate = item => {
+    const sale = getSale(item);
+    return sale.sale_date || sale.date || item.sale_date || "";
+  };
+
+  const getAmount = item =>
+    Number(item.unit_price || item.amount || 0) *
+    Number(item.quantity || 1);
+
+  const getCommission = item =>
+    Number(
+      item.commission_amount ??
+      item.commission ??
+      (
+        getAmount(item) *
+        Number(item.commission_rate || 0) / 100
+      )
+    );
+
+  const monthlySales = sales.filter(item =>
+    String(getDate(item)).startsWith(month)
+  );
+
+  const totalSales = monthlySales.reduce(
+    (sum, item) => sum + getAmount(item),
+    0
+  );
+
+  const totalCommission = monthlySales.reduce(
+    (sum, item) => sum + getCommission(item),
+    0
+  );
+
+  const allSales = sales.reduce(
+    (sum, item) => sum + getAmount(item),
+    0
+  );
+
+  const allCommission = sales.reduce(
+    (sum, item) => sum + getCommission(item),
+    0
+  );
+
+  return (
+    <div className="shell">
+      <main className="main">
+        <header className="top">
+          <div>
+            <h1>My Staff Portal</h1>
+            <p>Essence Unisex Salon & Spa</p>
+          </div>
+          <button className="btn" onClick={onLogout}>
+            Log out
+          </button>
+        </header>
+
+        <Panel
+          title={`Welcome, ${staffProfile.display_name || staffProfile.name || "Staff"}`}
+          subtitle={`Your commission rate: ${staffProfile.commission_rate ?? staffProfile.commissionRate ?? 30}%`}
+        >
+          <div className="metrics">
+            <Metric
+              icon={ReceiptText}
+              label="My Total Service Sales"
+              value={money(allSales)}
+            />
+            <Metric
+              icon={Wallet}
+              label="My Total Commission"
+              value={money(allCommission)}
+            />
+          </div>
+        </Panel>
+
+        <Panel
+          title="My Monthly Summary"
+          subtitle="Your sales and commission for the selected month."
+        >
+          <div className="filters">
+            <Field label="Select month">
+              <input
+                type="month"
+                value={month}
+                onChange={e => setMonth(e.target.value)}
+              />
+            </Field>
+          </div>
+
+          <div className="metrics">
+            <Metric
+              label="Monthly Service Sales"
+              value={money(totalSales)}
+            />
+            <Metric
+              label="Monthly Commission"
+              value={money(totalCommission)}
+            />
+            <Metric
+              label="Services Recorded"
+              value={monthlySales.length}
+            />
+          </div>
+        </Panel>
+
+        <Panel
+          title="My Sales History"
+          subtitle="Only transactions credited to your staff account."
+        >
+          {loading && <p>Loading your sales...</p>}
+
+          {error && (
+            <p className="error" role="alert">{error}</p>
+          )}
+
+          {!loading && !error && (
+            <Table headers={[
+              "Date",
+              "Receipt",
+              "Service",
+              "Qty",
+              "Amount",
+              "Commission"
+            ]}>
+              {monthlySales.map((item, index) => {
+                const sale = getSale(item);
+
+                return (
+                  <tr key={item.id || index}>
+                    <td>{getDate(item)}</td>
+                    <td>{sale.receipt_no || sale.receiptNo || "—"}</td>
+                    <td>{item.service_name || item.serviceName || "Service"}</td>
+                    <td>{item.quantity || 1}</td>
+                    <td>{money(getAmount(item))}</td>
+                    <td>{money(getCommission(item))}</td>
+                  </tr>
+                );
+              })}
+
+              {!monthlySales.length && (
+                <tr>
+                  <td colSpan="6" className="empty">
+                    No sales recorded for this month.
+                  </td>
+                </tr>
+              )}
+            </Table>
+          )}
+        </Panel>
+      </main>
+    </div>
+  );
 }
 function Panel({title,subtitle,children}){return <section className="panel"><div className="panelhead"><div><h2>{title}</h2><p>{subtitle}</p></div></div>{children}</section>}
 function Field({label,children}){return <label className="field"><span>{label}</span>{children}</label>}
