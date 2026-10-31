@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { LayoutDashboard, ShoppingCart, ReceiptText, Users, Scissors, Download, Plus, Trash2, Printer, Search, Pencil, X, Check, Wallet, Percent, CalendarDays, RotateCcw, FileSpreadsheet } from "lucide-react";
 import "./styles.css";
+import { supabase } from "./supabase";
 const VAT_RATE = 0.075, DEFAULT_COMMISSION = 30;
 const KEYS = { sales: "essence-pos-v2-sales", staff: "essence-pos-v2-staff", services: "essence-pos-v2-services" };
 const money = n => new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 2 }).format(Number(n) || 0);
@@ -16,26 +17,545 @@ function csvDownload(rows) {
 }
 function App() {
   const [page,setPage] = useState("New Sale");
+  const [staffSession, setStaffSession] = useState("");
+  const [staffUsername, setStaffUsername] = useState("");
+const [staffPin, setStaffPin] = useState("");
+const [staffProfile, setStaffProfile] = useState(null);
+const [staffLoginError, setStaffLoginError] = useState("");
+  const [managerEmail, setManagerEmail] = useState("");
+const [managerPassword, setManagerPassword] = useState("");
+const [managerAuthError, setManagerAuthError] = useState("");
+const [newStaffName, setNewStaffName] = useState("");
+const [newStaffUsername, setNewStaffUsername] = useState("");
+const [newStaffPin, setNewStaffPin] = useState("");
+const [newStaffCommission, setNewStaffCommission] = useState("30");
+const [staffCreateMessage, setStaffCreateMessage] = useState("");
+const [staffCreateError, setStaffCreateError] = useState("");
 const [managerUnlocked,setManagerUnlocked] = useState(false);
 const [managementTab,setManagementTab] = useState("Dashboard");
   const [sales,setSales] = useState(()=>read(KEYS.sales,[]));
-  const [staff,setStaff] = useState(()=>read(KEYS.staff,[]).map(p=>typeof p==="string"?{id:uid(),name:p,commissionRate:DEFAULT_COMMISSION}:{id:p.id||uid(),name:p.name||"",commissionRate:Number(p.commissionRate??DEFAULT_COMMISSION)}));
+  const [staff,setStaff] = useState([]);
   const [services,setServices] = useState(()=>read(KEYS.services,[]).map(s=>({...s,id:s.id||uid(),price:Number(s.price)||0})));
   const [notice,setNotice] = useState(""), [search,setSearch] = useState(""), [dateFilter,setDateFilter] = useState(today());
   const saveSales=v=>{setSales(v);localStorage.setItem(KEYS.sales,JSON.stringify(v));};
   const saveStaff=v=>{setStaff(v);localStorage.setItem(KEYS.staff,JSON.stringify(v));};
   const saveServices=v=>{setServices(v);localStorage.setItem(KEYS.services,JSON.stringify(v));};
-  const flash=t=>{setNotice(t);window.setTimeout(()=>setNotice(""),2500);};
+  
+const handleDeleteSale = async (saleId, password) => {
+  if (!managerEmail.trim()) {
+    throw new Error("Manager email is missing. Please sign in again.");
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: managerEmail.trim(),
+    password
+  });
+
+  if (error) {
+    throw new Error("Incorrect manager password. Sale was not deleted.");
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("staff_profiles")
+    .select("role")
+    .eq("id", data.user.id)
+    .single();
+
+  if (profileError || profile?.role !== "manager") {
+    throw new Error("Manager authorisation failed. Sale was not deleted.");
+  }
+
+  const { error: deleteError } = await supabase
+    .from("pos_sales")
+    .delete()
+    .eq("id", saleId);
+
+  if (deleteError) {
+    console.error("SALE DELETION ERROR:", deleteError);
+    throw new Error("Could not delete sale: " + deleteError.message);
+  }
+
+  saveSales(sales.filter(s => s.id !== saleId));
+  flash("Sale deleted successfully.");
+  return true;
+};
+  
+const completeSale = async (s) => {
+  try {
+    const { data: { session }, error: sessionError } =
+      await supabase.auth.getSession();
+
+    if (sessionError) throw sessionError;
+
+    if (!session?.access_token) {
+      throw new Error("Manager session expired. Please sign in again.");
+    }
+
+    const { data: saleRow, error: saleError } = await supabase
+      .from("pos_sales")
+      .insert({
+        receipt_no: s.receiptNo,
+        sale_date: s.date,
+        customer_name: s.customerName,
+        payment_method: s.paymentMethod,
+        subtotal: s.subtotal,
+        discount: s.discount,
+        vat: s.vat,
+        total: s.total,
+        commission: s.commission
+      })
+      .select("id")
+      .single();
+
+    if (saleError) throw saleError;
+
+    const saleItems = s.items.map(i => ({
+      sale_id: saleRow.id,
+      staff_id: i.staffId,
+      service_name: i.serviceName,
+      quantity: i.quantity,
+      unit_price: i.unitPrice,
+      commission_rate: i.commissionRate,
+      commission_amount: i.commissionAmount
+    }));
+
+    const { error: itemsError } = await supabase
+      .from("pos_sale_items")
+      .insert(saleItems);
+
+    if (itemsError) {
+      await supabase
+        .from("pos_sales")
+        .delete()
+        .eq("id", saleRow.id);
+
+      throw itemsError;
+    }
+
+    saveSales([{ ...s, id: saleRow.id }, ...sales]);
+    flash("Sale saved: " + s.receiptNo);
+    setPage("Sales History");
+
+  } catch (error) {
+    console.error("SALE SAVE ERROR:", error);
+    alert(error.message || "Unable to save sale. Please try again.");
+  }
+};
+
+  useEffect(() => {
+  let active = true;
+
+  const loadStaff = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session) return;
+
+    const { data, error } = await supabase
+      .from("staff_profiles")
+      .select("id, display_name, commission_rate")
+      .eq("role", "staff")
+      .order("display_name");
+
+    if (!active) return;
+
+    if (error) {
+      console.error("Could not load staff:", error);
+      setStaffCreateError("Could not load staff accounts from Supabase.");
+      return;
+    }
+
+    const loadedStaff = (data || []).map(person => ({
+      id: person.id,
+      name: person.display_name,
+      commissionRate: Number(person.commission_rate ?? 30)
+    }));
+
+    setStaff(loadedStaff);
+    localStorage.setItem(KEYS.staff, JSON.stringify(loadedStaff));
+  };
+
+  loadStaff();
+
+  return () => {
+    active = false;
+  };
+}, []);
+  
+useEffect(() => {
+  let active = true;
+
+  
+const loadSales = async () => {
+  const { data: { session }, error: sessionError } =
+    await supabase.auth.getSession();
+
+  if (sessionError) {
+    console.error("Could not check manager session:", sessionError);
+    return;
+  }
+
+  if (!session) return;
+
+  const { data: salesData, error: salesError } = await supabase
+    .from("pos_sales")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (!active) return;
+
+  if (salesError) {
+    console.error("Could not load sales:", salesError);
+    return;
+  }
+
+  const { data: itemsData, error: itemsError } = await supabase
+    .from("pos_sale_items")
+    .select("*");
+
+  if (!active) return;
+
+  if (itemsError) {
+    console.error("Could not load sale items:", itemsError);
+    return;
+  }
+
+  const loadedSales = (salesData || []).map(s => ({
+    id: s.id,
+    receiptNo: s.receipt_no,
+    date: s.sale_date,
+    customerName: s.customer_name,
+    paymentMethod: s.payment_method,
+    subtotal: Number(s.subtotal || 0),
+    discount: Number(s.discount || 0),
+    vat: Number(s.vat || 0),
+    total: Number(s.total || 0),
+    commission: Number(s.commission || 0),
+    status: "Paid",
+    items: (itemsData || [])
+      .filter(i => i.sale_id === s.id)
+      .map(i => ({
+        id: i.id,
+        staffId: i.staff_id,
+        serviceName: i.service_name,
+        quantity: Number(i.quantity || 1),
+        unitPrice: Number(i.unit_price || 0),
+        commissionRate: Number(i.commission_rate || 0),
+        commissionAmount: Number(i.commission_amount || 0)
+      }))
+  }));
+
+  setSales(loadedSales);
+  localStorage.setItem(KEYS.sales, JSON.stringify(loadedSales));
+};
+
+
+  loadSales();
+
+  return () => {
+    active = false;
+  };
+}, []);
+
+
+const handleStaffLogin = async (event) => {
+  event.preventDefault();
+  setStaffLoginError("");
+
+  try {
+    const { data, error } = await supabase.functions.invoke(
+      "Staff-login",
+      {
+        body: {
+          username: staffUsername.trim().toLowerCase(),
+          pin: staffPin,
+        },
+      }
+    );
+
+    if (error) {
+      console.error("Staff login request failed:", error);
+      throw new Error(error.message || "Staff login request failed.");
+    }
+
+    if (!data?.token || !data?.staff) {
+      throw new Error(
+        data?.error || "Login response is missing staff details."
+      );
+    }
+
+    setStaffSession(data.token);
+    setStaffProfile(data.staff);
+    setStaffPin("");
+    setStaffLoginError("");
+
+  } catch (error) {
+    console.error("STAFF LOGIN ERROR:", error);
+    setStaffLoginError(
+      error.message || "Unable to sign in. Please try again."
+    );
+  }
+};
+
+const handleManagerSignIn = async (e) => {
+  e.preventDefault();
+  setManagerAuthError("");
+
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: managerEmail.trim(),
+      password: managerPassword,
+    });
+
+    if (error) throw error;
+
+    const { data: profile, error: profileError } = await supabase
+      .from("staff_profiles")
+      .select("role")
+      .eq("id", data.user.id)
+      .single();
+
+    if (profileError) throw profileError;
+
+    if (profile.role !== "manager") {
+      await supabase.auth.signOut();
+      throw new Error("This account is not authorised for management.");
+    }
+
+    setManagerPassword("");
+    setManagerUnlocked(true);
+    setPage("Management");
+  } catch (error) {
+    setManagerAuthError(
+      error.message || "Manager sign-in failed. Please try again."
+    );
+  }
+};
+
+const handleCreateStaff = async (event) => {
+  event.preventDefault();
+  setStaffCreateMessage("");
+  setStaffCreateError("");
+
+  const displayName = newStaffName.trim();
+  const username = newStaffUsername.trim().toLowerCase();
+  const pin = newStaffPin;
+  const commission = Number(newStaffCommission);
+
+  if (!displayName) {
+    setStaffCreateError("Enter the staff member's name.");
+    return;
+  }
+
+  if (!/^[a-z0-9_]{3,30}$/.test(username)) {
+    setStaffCreateError("Username must contain 3–30 lowercase letters, numbers or underscores.");
+    return;
+  }
+
+  if (!/^\d{6}$/.test(pin)) {
+    setStaffCreateError("PIN must contain exactly six digits.");
+    return;
+  }
+
+  if (!Number.isFinite(commission) || commission < 0 || commission > 100) {
+    setStaffCreateError("Commission must be between 0 and 100.");
+    return;
+  }
+
+  if (staff.some(p => p.username?.toLowerCase() === username)) {
+    setStaffCreateError("That username is already in the POS staff list.");
+    return;
+  }
+
+  try {
+    const {
+      data: { session },
+      error: sessionError
+    } = await supabase.auth.getSession();
+
+    if (sessionError) throw new Error(sessionError.message);
+
+    if (!session?.access_token) {
+      throw new Error("Manager session expired. Please sign in again.");
+    }
+
+    const projectUrl = supabase.supabaseUrl;
+    const anonKey = supabase.supabaseKey;
+
+    if (!projectUrl || !anonKey) {
+      throw new Error("Supabase configuration is missing.");
+    }
+
+    const response = await fetch(
+      `${projectUrl.replace(/\/$/, "")}/functions/v1/Staff-provision`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": anonKey,
+          "Authorization": `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          display_name: displayName,
+          username,
+          pin,
+          commission_rate: commission
+        })
+      }
+    );
+
+    const responseText = await response.text();
+    let result = {};
+
+    try {
+      result = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      throw new Error("Supabase returned an unreadable response.");
+    }
+
+    if (!response.ok || result.success !== true || !result.staff?.id) {
+      throw new Error(
+        result.error || `Staff account creation failed (HTTP ${response.status}).`
+      );
+    }
+
+    const newStaff = {
+      id: result.staff.id,
+      name: result.staff.display_name,
+      commissionRate: Number(result.staff.commission_rate ?? commission),
+      username: result.staff.username
+    };
+
+    saveStaff([...staff, newStaff]);
+
+    setStaffCreateMessage(
+      `${displayName}'s login account has been created and added to POS.`
+    );
+
+    setNewStaffName("");
+    setNewStaffUsername("");
+    setNewStaffPin("");
+    setNewStaffCommission("30");
+
+  } catch (error) {
+    console.error("STAFF ACCOUNT CREATION ERROR:", error);
+    setStaffCreateError(error.message || "Unable to create staff account.");
+  }
+};
+
+
+const flash=t=>{setNotice(t);window.setTimeout(()=>setNotice(""),2500);};
   const todaySales=sales.filter(s=>s.date===today());
   const filtered=useMemo(()=>sales.filter(s=>[s.receiptNo,s.customerName,s.paymentMethod,...(s.items||[]).map(i=>i.serviceName+" "+i.staffName)].join(" ").toLowerCase().includes(search.toLowerCase())&&(!dateFilter||s.date===dateFilter)),[sales,search,dateFilter]);
   const exportSales=list=>csvDownload([["Receipt","Date","Customer","Services","Staff","Subtotal","Discount","VAT","Total","Commission","Payment"],...list.map(s=>[s.receiptNo,s.date,s.customerName,(s.items||[]).map(i=>`${i.serviceName} x${i.quantity}`).join("; "),(s.items||[]).map(i=>i.staffName).join("; "),s.subtotal,s.discount,s.vat,s.total,s.commission,s.paymentMethod])]);
   const nav=[["Management",LayoutDashboard],["New Sale",ShoppingCart],["Sales History",ReceiptText],["Services",Scissors]];
+  
+if (staffSession && staffProfile) {
+  return (
+    <StaffPortal
+      staffSession={staffSession}
+      staffProfile={staffProfile}
+      onLogout={async () => {
+        try {
+          await supabase.functions.invoke("staff-logout", {
+            body: {},
+            headers: { "x-staff-session": staffSession }
+          });
+        } catch (error) {
+          console.error("Staff logout error:", error);
+        } finally {
+          setStaffSession("");
+          setStaffProfile(null);
+          setStaffUsername("");
+          setStaffPin("");
+          setPage("New Sale");
+        }
+      }}
+    />
+  );
+}
+
+if (!staffSession && !managerUnlocked) {
+  return (
+    <div className="shell">
+      <main className="main">
+        <Panel title="Essence Staff Login" subtitle="Sign in with your username and six-digit PIN.">
+          <form onSubmit={handleStaffLogin}>
+            <Field label="Username">
+              <input
+                autoComplete="username"
+                value={staffUsername}
+                onChange={e => setStaffUsername(e.target.value)}
+                required
+              />
+            </Field>
+            <Field label="Six-digit PIN">
+              <input
+                type="password"
+                inputMode="numeric"
+                autoComplete="current-password"
+                maxLength={6}
+                pattern="[0-9]{6}"
+                value={staffPin}
+                onChange={e => setStaffPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                required
+              />
+            </Field>
+            {staffLoginError && <p role="alert">{staffLoginError}</p>}
+            <button className="btn primary" type="submit">Sign in</button>
+          </form>
+          
+<form onSubmit={handleManagerSignIn}>
+  <h3>Manager Sign In</h3>
+
+  <Field label="Manager email">
+    <input
+      type="email"
+      autoComplete="username"
+      value={managerEmail}
+      onChange={e => setManagerEmail(e.target.value)}
+      required
+    />
+  </Field>
+
+  <Field label="Manager password">
+    <input
+      type="password"
+      autoComplete="current-password"
+      value={managerPassword}
+      onChange={e => setManagerPassword(e.target.value)}
+      required
+    />
+  </Field>
+
+  {managerAuthError && (
+    <p role="alert">{managerAuthError}</p>
+  )}
+
+  <button className="btn primary" type="submit">
+    Sign in as Manager
+  </button>
+</form>
+
+        </Panel>
+      </main>
+    </div>
+  );
+}
+
   return <div className="shell"><aside className="sidebar"><div className="brand"><span className="brandmark">E</span><div><b>ESSENCE</b><small>UNISEX SALON & SPA</small></div></div><nav>{nav.map(([n,I])=><button key={n} className={page===n?"nav active":"nav"} onClick={()=>{
   if(n==="Management"){
     const code=window.prompt("Enter management access code");
     if(code===MANAGER_ACCESS_CODE){
       setManagerUnlocked(true);
-      setPage("Management");
+supabase.auth.getSession().then(({ data: { session } }) => {
+  setStaffCreateError(
+    session?.access_token
+      ? "Diagnostic: Manager session is active."
+      : "Diagnostic: No manager session found."
+  );
+});
+
+setPage("Management");
     }else if(code!==null){
       alert("Incorrect access code.");
     }
@@ -55,13 +575,297 @@ const [managementTab,setManagementTab] = useState("Dashboard");
   </div>
   {managementTab==="Dashboard"&&<Dashboard sales={sales} staff={staff} todaySales={todaySales} newSale={()=>setPage("New Sale")} exportAll={()=>exportSales(sales)}/>}
   {managementTab==="Staff & Commission"&&<Staff staff={staff} sales={sales} save={saveStaff} flash={flash}/>}
-  {managementTab==="Monthly Reports"&&<MonthlyReports sales={sales} staff={staff}/>}
+  {managementTab==="Staff & Commission" && managerUnlocked && (
+  <Panel
+    title="Create Staff Login Account"
+    subtitle="Create a username and six-digit PIN for a staff member."
+  >
+    <form onSubmit={handleCreateStaff}>
+      <Field label="Staff full name">
+        <input
+          value={newStaffName}
+          onChange={e => setNewStaffName(e.target.value)}
+          required
+        />
+      </Field>
+
+      <Field label="Username">
+        <input
+          value={newStaffUsername}
+          onChange={e =>
+            setNewStaffUsername(
+              e.target.value.toLowerCase().trim()
+            )
+          }
+          autoComplete="off"
+          required
+        />
+      </Field>
+
+      <Field label="Six-digit PIN">
+        <input
+          type="password"
+          inputMode="numeric"
+          maxLength={6}
+          pattern="[0-9]{6}"
+          value={newStaffPin}
+          onChange={e =>
+            setNewStaffPin(
+              e.target.value.replace(/\D/g, "").slice(0, 6)
+            )
+          }
+          autoComplete="new-password"
+          required
+        />
+      </Field>
+
+      <Field label="Commission (%)">
+        <input
+          type="number"
+          min="0"
+          max="100"
+          step="0.01"
+          value={newStaffCommission}
+          onChange={e => setNewStaffCommission(e.target.value)}
+          required
+        />
+      </Field>
+
+      {staffCreateError && (
+        <p role="alert">{staffCreateError}</p>
+      )}
+
+      {staffCreateMessage && (
+        <p role="status">{staffCreateMessage}</p>
+      )}
+
+      <button className="btn primary" type="submit">
+        Create Staff Account
+      </button>
+    </form>
+  </Panel>
+)}
+ {managementTab==="Monthly Reports"&&<MonthlyReports sales={sales} staff={staff}/>}
 </>}
 
- {page==="New Sale"&&<NewSale staff={staff} services={services} cancel={()=>setPage("Sales History")} complete={s=>{saveSales([s,...sales]);flash("Sale saved: "+s.receiptNo);setPage("Sales History");}}/>}
-  {page==="Sales History"&&<History sales={filtered} search={search} setSearch={setSearch} date={dateFilter} setDate={setDateFilter} exportIt={()=>exportSales(filtered)} remove={id=>{if(confirm("Delete this sale permanently?")){saveSales(sales.filter(s=>s.id!==id));flash("Sale deleted.");}}}/>}
+ {page==="New Sale"&&<NewSale staff={staff} services={services} cancel={()=>setPage("Sales History")} complete={completeSale}/>}
+  {page==="Sales History"&&<History sales={filtered} search={search} setSearch={setSearch} date={dateFilter} setDate={setDateFilter} exportIt={()=>exportSales(filtered)} remove={handleDeleteSale}/>}
   {page==="Services"&&<Services services={services} save={saveServices} flash={flash}/>}
   <footer>Essence Salon POS · Export your sales regularly for backup.</footer></main></div>;
+}
+function StaffPortal({ staffSession, staffProfile, onLogout }) {
+  const [sales, setSales] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [month, setMonth] = useState(
+    new Date().getFullYear() + "-" +
+    String(new Date().getMonth() + 1).padStart(2, "0")
+  );
+
+  useEffect(() => {
+    let active = true;
+
+    const loadMySales = async () => {
+      setLoading(true);
+      setError("");
+
+      try {
+        const { data, error } = await supabase.functions.invoke(
+          "staff-my-sales",
+          {
+            body: {},
+            headers: {
+              "x-staff-session": staffSession
+            }
+          }
+        );
+
+        if (error) throw error;
+
+        if (data?.success === false) {
+          throw new Error(data.error || "Could not load your sales.");
+        }
+
+        const rows = Array.isArray(data)
+          ? data
+          : data?.sales || data?.items || data?.data || [];
+
+        if (!Array.isArray(rows)) {
+          throw new Error("The sales response has an unexpected format.");
+        }
+
+        if (active) setSales(rows);
+      } catch (err) {
+        console.error("MY SALES ERROR:", err);
+        if (active) {
+          setError(err.message || "Unable to load your sales.");
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    loadMySales();
+
+    return () => {
+      active = false;
+    };
+  }, [staffSession]);
+
+  const getSale = item =>
+    item.pos_sales || item.sale || item.sales || item;
+
+  const getDate = item => {
+    const sale = getSale(item);
+    return sale.sale_date || sale.date || item.sale_date || "";
+  };
+
+  const getAmount = item =>
+    Number(item.unit_price || item.amount || 0) *
+    Number(item.quantity || 1);
+
+  const getCommission = item =>
+    Number(
+      item.commission_amount ??
+      item.commission ??
+      (
+        getAmount(item) *
+        Number(item.commission_rate || 0) / 100
+      )
+    );
+
+  const monthlySales = sales.filter(item =>
+    String(getDate(item)).startsWith(month)
+  );
+
+  const totalSales = monthlySales.reduce(
+    (sum, item) => sum + getAmount(item),
+    0
+  );
+
+  const totalCommission = monthlySales.reduce(
+    (sum, item) => sum + getCommission(item),
+    0
+  );
+
+  const allSales = sales.reduce(
+    (sum, item) => sum + getAmount(item),
+    0
+  );
+
+  const allCommission = sales.reduce(
+    (sum, item) => sum + getCommission(item),
+    0
+  );
+
+  return (
+    <div className="shell">
+      <main className="main">
+        <header className="top">
+          <div>
+            <h1>My Staff Portal</h1>
+            <p>Essence Unisex Salon & Spa</p>
+          </div>
+          <button className="btn" onClick={onLogout}>
+            Log out
+          </button>
+        </header>
+
+        <Panel
+          title={`Welcome, ${staffProfile.display_name || staffProfile.name || "Staff"}`}
+          subtitle={`Your commission rate: ${staffProfile.commission_rate ?? staffProfile.commissionRate ?? 30}%`}
+        >
+          <div className="metrics">
+            <Metric
+              icon={ReceiptText}
+              label="My Total Service Sales"
+              value={money(allSales)}
+            />
+            <Metric
+              icon={Wallet}
+              label="My Total Commission"
+              value={money(allCommission)}
+            />
+          </div>
+        </Panel>
+
+        <Panel
+          title="My Monthly Summary"
+          subtitle="Your sales and commission for the selected month."
+        >
+          <div className="filters">
+            <Field label="Select month">
+              <input
+                type="month"
+                value={month}
+                onChange={e => setMonth(e.target.value)}
+              />
+            </Field>
+          </div>
+
+          <div className="metrics">
+            <Metric
+              label="Monthly Service Sales"
+              value={money(totalSales)}
+            />
+            <Metric
+              label="Monthly Commission"
+              value={money(totalCommission)}
+            />
+            <Metric
+              label="Services Recorded"
+              value={monthlySales.length}
+            />
+          </div>
+        </Panel>
+
+        <Panel
+          title="My Sales History"
+          subtitle="Only transactions credited to your staff account."
+        >
+          {loading && <p>Loading your sales...</p>}
+
+          {error && (
+            <p className="error" role="alert">{error}</p>
+          )}
+
+          {!loading && !error && (
+            <Table headers={[
+              "Date",
+              "Receipt",
+              "Service",
+              "Qty",
+              "Amount",
+              "Commission"
+            ]}>
+              {monthlySales.map((item, index) => {
+                const sale = getSale(item);
+
+                return (
+                  <tr key={item.id || index}>
+                    <td>{getDate(item)}</td>
+                    <td>{sale.receipt_no || sale.receiptNo || "—"}</td>
+                    <td>{item.service_name || item.serviceName || "Service"}</td>
+                    <td>{item.quantity || 1}</td>
+                    <td>{money(getAmount(item))}</td>
+                    <td>{money(getCommission(item))}</td>
+                  </tr>
+                );
+              })}
+
+              {!monthlySales.length && (
+                <tr>
+                  <td colSpan="6" className="empty">
+                    No sales recorded for this month.
+                  </td>
+                </tr>
+              )}
+            </Table>
+          )}
+        </Panel>
+      </main>
+    </div>
+  );
 }
 function Panel({title,subtitle,children}){return <section className="panel"><div className="panelhead"><div><h2>{title}</h2><p>{subtitle}</p></div></div>{children}</section>}
 function Field({label,children}){return <label className="field"><span>{label}</span>{children}</label>}
@@ -91,10 +895,138 @@ function NewSale({staff,services,cancel,complete}) {
 <div><span>Salon balance after deductions</span><b>{money(salonBalance)}</b></div>
 </div></div><div className="actions end"><button type="button" className="btn" onClick={cancel}>Cancel</button><button className="btn primary" type="submit"><Check size={16}/> Complete Sale</button></div></form></Panel>;
 }
+
 function History({sales,search,setSearch,date,setDate,exportIt,remove}) {
- const [receipt,setReceipt]=useState(null);
- return <><Panel title="Sales History" subtitle="Search, review, print receipts, and export transactions."><div className="filters"><label className="search"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search receipt, customer, service or staff"/></label><Field label="Date"><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></Field><button className="btn" onClick={()=>{setSearch("");setDate("");}}><RotateCcw size={15}/> Reset</button><button className="btn" onClick={exportIt}><Download size={15}/> Export CSV</button></div><Table headers={["Receipt","Date","Customer","Total","Payment","Actions"]}>{sales.map(s=><tr key={s.id}><td>{s.receiptNo}</td><td>{s.date}</td><td>{s.customerName}</td><td>{money(s.total)}</td><td>{s.paymentMethod}</td><td><div className="inline"><button className="iconbtn" onClick={()=>setReceipt(s)} title="Receipt"><ReceiptText size={15}/></button><button className="iconbtn danger" onClick={()=>remove(s.id)} title="Delete"><Trash2 size={15}/></button></div></td></tr>)}{!sales.length&&<tr><td colSpan="6" className="empty">No sales match these filters.</td></tr>}</Table></Panel>{receipt&&<ReceiptModal sale={receipt} close={()=>setReceipt(null)}/>}</>;
+  const [receipt,setReceipt] = useState(null);
+  const [pendingDelete,setPendingDelete] = useState(null);
+  const [managerPassword,setManagerPassword] = useState("");
+  const [deleteError,setDeleteError] = useState("");
+  const [deleting,setDeleting] = useState(false);
+
+  const confirmDelete = async (event) => {
+    event.preventDefault();
+    setDeleteError("");
+
+    if (!managerPassword) {
+      setDeleteError("Enter the manager password.");
+      return;
+    }
+
+    setDeleting(true);
+
+    try {
+      const success = await remove(pendingDelete.id, managerPassword);
+
+      if (success) {
+        setPendingDelete(null);
+        setManagerPassword("");
+      } else {
+        setDeleteError("Sale was not deleted. Please try again.");
+      }
+    } catch (error) {
+      setDeleteError(error.message || "Unable to delete sale.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return <>
+    <Panel title="Sales History" subtitle="Search, review, print receipts, and export transactions.">
+      <div className="filters">
+        <label className="search">
+          <Search size={16}/>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search receipt, customer, service or staff"/>
+        </label>
+        <Field label="Date">
+          <input type="date" value={date} onChange={e=>setDate(e.target.value)}/>
+        </Field>
+        <button className="btn" onClick={()=>{setSearch("");setDate("");}}>
+          <RotateCcw size={15}/> Reset
+        </button>
+        <button className="btn" onClick={exportIt}>
+          <Download size={15}/> Export CSV
+        </button>
+      </div>
+
+      <Table headers={["Receipt","Date","Customer","Total","Payment","Actions"]}>
+        {sales.map(s=><tr key={s.id}>
+          <td>{s.receiptNo}</td>
+          <td>{s.date}</td>
+          <td>{s.customerName}</td>
+          <td>{money(s.total)}</td>
+          <td>{s.paymentMethod}</td>
+          <td>
+            <div className="inline">
+              <button className="iconbtn" onClick={()=>setReceipt(s)} title="Receipt">
+                <ReceiptText size={15}/>
+              </button>
+              <button
+                className="iconbtn danger"
+                onClick={()=>{
+                  setPendingDelete(s);
+                  setManagerPassword("");
+                  setDeleteError("");
+                }}
+                title="Delete"
+              >
+                <Trash2 size={15}/>
+              </button>
+            </div>
+          </td>
+        </tr>)}
+        {!sales.length&&<tr><td colSpan="6" className="empty">No sales match these filters.</td></tr>}
+      </Table>
+    </Panel>
+
+    {receipt&&<ReceiptModal sale={receipt} close={()=>setReceipt(null)}/>}
+
+    {pendingDelete&&
+      <div className="overlay">
+        <section className="receipt">
+          <h2>Manager authorisation</h2>
+          <p>
+            Enter the manager password to permanently delete receipt
+            <b> {pendingDelete.receiptNo}</b>.
+          </p>
+
+          <form onSubmit={confirmDelete}>
+            <Field label="Manager password">
+              <input
+                type="password"
+                value={managerPassword}
+                onChange={e=>setManagerPassword(e.target.value)}
+                placeholder="Enter manager password"
+                autoComplete="current-password"
+                required
+              />
+            </Field>
+
+            {deleteError&&<p className="error">{deleteError}</p>}
+
+            <div className="actions end">
+              <button
+                type="button"
+                className="btn"
+                disabled={deleting}
+                onClick={()=>{
+                  setPendingDelete(null);
+                  setManagerPassword("");
+                  setDeleteError("");
+                }}
+              >
+                Cancel
+              </button>
+              <button className="btn danger" type="submit" disabled={deleting}>
+                {deleting ? "Verifying..." : "Verify and delete"}
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+    }
+  </>;
 }
+
 function Services({services,save,flash}) {
  const [name,setName]=useState(""),[price,setPrice]=useState(""),[editing,setEditing]=useState(null);
  const reset=()=>{setName("");setPrice("");setEditing(null);};
