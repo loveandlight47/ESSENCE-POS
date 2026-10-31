@@ -4,7 +4,6 @@ import { LayoutDashboard, ShoppingCart, ReceiptText, Users, Scissors, Download, 
 import "./styles.css";
 import { supabase } from "./supabase";
 const VAT_RATE = 0.075, DEFAULT_COMMISSION = 30;
-const MANAGER_ACCESS_CODE = "Saloon@90";
 const KEYS = { sales: "essence-pos-v2-sales", staff: "essence-pos-v2-staff", services: "essence-pos-v2-services" };
 const money = n => new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 2 }).format(Number(n) || 0);
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
