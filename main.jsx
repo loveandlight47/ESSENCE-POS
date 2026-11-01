@@ -542,14 +542,24 @@ if (!staffSession && !managerUnlocked) {
   );
 }
 
-  return <div className="shell"><aside className="sidebar"><div className="brand"><span className="brandmark">E</span><div><b>ESSENCE</b><small>UNISEX SALON & SPA</small></div></div><nav>{nav.map(([n,I])=><button key={n} className={page===n?"nav active":"nav"} onClick={()=>{
-  if (n === "Management") {
-    setPage("Management");
-  } else {
-    setManagerUnlocked(false);
-    setPage(n);
-  }
-}}><I size={18}/>{n}</button>)}</nav><small className="sidefoot">Salon POS · VAT 7.5%</small></aside>
+  return <div className="shell"><aside className="sidebar"><div className="brand"><span className="brandmark">E</span><div><b>ESSENCE</b><small>UNISEX SALON & SPA</small></div></div><nav>
+  {nav.map(([n,I])=>(
+    <button
+      key={n}
+      className={page===n?"nav active":"nav"}
+      onClick={()=>{
+        if (n === "Management") {
+          setPage("Management");
+        } else {
+          setPage(n);
+        }
+      }}
+    >
+      <I size={18}/>
+      {n}
+    </button>
+  ))}
+</nav><small className="sidefoot">Salon POS · VAT 7.5%</small></aside>
   <main className="main"><header className="top"><div><h1>{page}</h1><p>Essence Unisex Salon & Spa</p></div><span className="date"><CalendarDays size={16}/>{today()}</span></header>{notice&&<div className="notice">{notice}</div>}
   
 {page==="Management"&&managerUnlocked&&<>
