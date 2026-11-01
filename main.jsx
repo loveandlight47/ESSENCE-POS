@@ -474,68 +474,46 @@ if (staffSession && staffProfile) {
   );
 }
 
-if (!staffSession && !managerUnlocked) {
+if (page === "Management" && !managerUnlocked) {
   return (
     <div className="shell">
       <main className="main">
-        <Panel title="Essence Staff Login" subtitle="Sign in with your username and six-digit PIN.">
-          <form onSubmit={handleStaffLogin}>
-            <Field label="Username">
+        <Panel title="Manager Sign In" subtitle="Sign in to access management.">
+          <form onSubmit={handleManagerSignIn}>
+            <Field label="Manager email">
               <input
+                type="email"
                 autoComplete="username"
-                value={staffUsername}
-                onChange={e => setStaffUsername(e.target.value)}
+                value={managerEmail}
+                onChange={e => setManagerEmail(e.target.value)}
                 required
               />
             </Field>
-            <Field label="Six-digit PIN">
+
+            <Field label="Manager password">
               <input
                 type="password"
-                inputMode="numeric"
                 autoComplete="current-password"
-                maxLength={6}
-                pattern="[0-9]{6}"
-                value={staffPin}
-                onChange={e => setStaffPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                value={managerPassword}
+                onChange={e => setManagerPassword(e.target.value)}
                 required
               />
             </Field>
-            {staffLoginError && <p role="alert">{staffLoginError}</p>}
-            <button className="btn primary" type="submit">Sign in</button>
+
+            {managerAuthError && <p role="alert">{managerAuthError}</p>}
+
+            <button className="btn primary" type="submit">
+              Sign in as Manager
+            </button>
+
+            <button
+              className="btn"
+              type="button"
+              onClick={() => setPage("New Sale")}
+            >
+              Back to POS
+            </button>
           </form>
-          
-<form onSubmit={handleManagerSignIn}>
-  <h3>Manager Sign In</h3>
-
-  <Field label="Manager email">
-    <input
-      type="email"
-      autoComplete="username"
-      value={managerEmail}
-      onChange={e => setManagerEmail(e.target.value)}
-      required
-    />
-  </Field>
-
-  <Field label="Manager password">
-    <input
-      type="password"
-      autoComplete="current-password"
-      value={managerPassword}
-      onChange={e => setManagerPassword(e.target.value)}
-      required
-    />
-  </Field>
-
-  {managerAuthError && (
-    <p role="alert">{managerAuthError}</p>
-  )}
-
-  <button className="btn primary" type="submit">
-    Sign in as Manager
-  </button>
-</form>
-
         </Panel>
       </main>
     </div>
@@ -548,12 +526,16 @@ if (!staffSession && !managerUnlocked) {
       key={n}
       className={page===n?"nav active":"nav"}
       onClick={()=>{
-        if (n === "Management") {
-          setPage("Management");
-        } else {
-          setPage(n);
-        }
-      }}
+  if (n === "Management") {
+    if (staffSession) {
+      alert("Management access is reserved for managers.");
+      return;
+    }
+    setPage("Management");
+  } else {
+    setPage(n);
+  }
+}}
     >
       <I size={18}/>
       {n}
