@@ -17,6 +17,7 @@ function csvDownload(rows) {
 }
 function App() {
   const [page,setPage] = useState("New Sale");
+  const isStaffPortal = new URLSearchParams(window.location.search).get("portal") === "staff";
   const [staffSession, setStaffSession] = useState("");
   const [staffUsername, setStaffUsername] = useState("");
 const [staffPin, setStaffPin] = useState("");
@@ -467,13 +468,62 @@ if (staffSession && staffProfile) {
           setStaffProfile(null);
           setStaffUsername("");
           setStaffPin("");
-          setPage("New Sale");
+          if (isStaffPortal) {
+  setPage("Staff Login");
+} else {
+  setPage("New Sale");
+}
         }
       }}
     />
   );
 }
+if (isStaffPortal && !staffSession) {
+  return (
+    <div className="shell">
+      <main className="main">
+        <Panel
+          title="Essence Staff Login"
+          subtitle="Sign in with your personal username and six-digit PIN."
+        >
+          <form onSubmit={handleStaffLogin}>
+            <Field label="Username">
+              <input
+                autoComplete="username"
+                value={staffUsername}
+                onChange={e => setStaffUsername(e.target.value)}
+                required
+              />
+            </Field>
 
+            <Field label="Six-digit PIN">
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                pattern="[0-9]{6}"
+                autoComplete="current-password"
+                value={staffPin}
+                onChange={e =>
+                  setStaffPin(e.target.value.replace(/\D/g, "").slice(0, 6))
+                }
+                required
+              />
+            </Field>
+
+            {staffLoginError && (
+              <p role="alert">{staffLoginError}</p>
+            )}
+
+            <button className="btn primary" type="submit">
+              Sign in
+            </button>
+          </form>
+        </Panel>
+      </main>
+    </div>
+  );
+}
 if (page === "Management" && !managerUnlocked) {
   return (
     <div className="shell">
