@@ -545,8 +545,12 @@ if (!staffSession && !managerUnlocked) {
   return <div className="shell"><aside className="sidebar"><div className="brand"><span className="brandmark">E</span><div><b>ESSENCE</b><small>UNISEX SALON & SPA</small></div></div><nav>{nav.map(([n,I])=><button key={n} className={page===n?"nav active":"nav"} onClick={()=>{
   if(n==="Management"){
     const code=window.prompt("Enter management access code");
-    if(code===MANAGER_ACCESS_CODE){
-      setManagerUnlocked(true);
+    if (n === "Management") {
+  setPage("Management");
+} else {
+  setManagerUnlocked(false);
+  setPage(n);
+}
 supabase.auth.getSession().then(({ data: { session } }) => {
   setStaffCreateError(
     session?.access_token
