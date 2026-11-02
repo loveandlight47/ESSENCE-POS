@@ -6,7 +6,12 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="Essence POS" />
   <meta name="theme-color" content="#24382b" />
-  <link rel="manifest" href="/manifest.json" />
+  <link rel="manifest" id="app-manifest" href="/manifest.json" />
+<script>
+  if (window.location.search.includes("portal=staff")) {
+    document.getElementById("app-manifest").setAttribute("href", "/staff-manifest.json");
+  }
+</script>
   <link rel="apple-touch-icon" href="/IMG_0001.jpeg" />
   <title>Essence Salon POS</title>
 </head>
