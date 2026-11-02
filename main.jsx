@@ -147,13 +147,14 @@ const completeSale = async (s) => {
   let active = true;
 
   const loadStaff = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session }, error: sessionError } =
+      await supabase.auth.getSession();
 
-    if (!session) return;
+    if (sessionError || !session) return;
 
     const { data, error } = await supabase
       .from("staff_profiles")
-      .select("id, display_name, commission_rate")
+      .select("id, display_name, commission_rate, is_active")
       .eq("role", "staff")
       .order("display_name");
 
@@ -168,7 +169,8 @@ const completeSale = async (s) => {
     const loadedStaff = (data || []).map(person => ({
       id: person.id,
       name: person.display_name,
-      commissionRate: Number(person.commission_rate ?? 30)
+      commissionRate: Number(person.commission_rate ?? 30),
+      active: person.is_active !== false
     }));
 
     setStaff(loadedStaff);
@@ -180,7 +182,7 @@ const completeSale = async (s) => {
   return () => {
     active = false;
   };
-}, []);
+}, [managerUnlocked]);
   
 useEffect(() => {
   let active = true;
@@ -420,11 +422,12 @@ const handleCreateStaff = async (event) => {
     }
 
     const newStaff = {
-      id: result.staff.id,
-      name: result.staff.display_name,
-      commissionRate: Number(result.staff.commission_rate ?? commission),
-      username: result.staff.username
-    };
+  id: result.staff.id,
+  name: result.staff.display_name,
+  commissionRate: Number(result.staff.commission_rate ?? commission),
+  username: result.staff.username,
+  active: true
+};
 
     saveStaff([...staff, newStaff]);
 
@@ -442,7 +445,67 @@ const handleCreateStaff = async (event) => {
     setStaffCreateError(error.message || "Unable to create staff account.");
   }
 };
+const handleStaffStatusChange = async (person) => {
+  if (!managerUnlocked) {
+    alert("Manager access is required to change staff status.");
+    return;
+  }
 
+  const newStatus = person.active === false;
+
+  const action = newStatus ? "reactivate" : "deactivate";
+
+  if (!window.confirm(
+    `Are you sure you want to ${action} ${person.name}?`
+  )) {
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke(
+      "staff-status",
+      {
+        body: {
+          staff_id: person.id,
+          is_active: newStatus
+        }
+      }
+    );
+
+    if (error) {
+      let message = error.message || "Staff status update failed.";
+
+      try {
+        const response = await error.context.json();
+        if (response?.error) message = response.error;
+      } catch {}
+
+      throw new Error(message);
+    }
+
+    if (!data?.success) {
+      throw new Error(data?.error || "Staff status update failed.");
+    }
+
+    const updatedStaff = staff.map(p =>
+      p.id === person.id
+        ? { ...p, active: newStatus }
+        : p
+    );
+
+    saveStaff(updatedStaff);
+
+    flash(
+      newStatus
+        ? `${person.name} has been reactivated.`
+        : `${person.name} has been deactivated.`
+    );
+
+  } catch (error) {
+    console.error("STAFF STATUS ERROR:", error);
+    alert(error.message || "Could not change staff status.");
+  }
+};
 
 const flash=t=>{setNotice(t);window.setTimeout(()=>setNotice(""),2500);};
   const todaySales=sales.filter(s=>s.date===today());
@@ -602,7 +665,13 @@ if (page === "Management" && !managerUnlocked) {
     <button className="btn" onClick={()=>{setManagerUnlocked(false);setPage("New Sale");}}>Lock Management</button>
   </div>
   {managementTab==="Dashboard"&&<Dashboard sales={sales} staff={staff} todaySales={todaySales} newSale={()=>setPage("New Sale")} exportAll={()=>exportSales(sales)}/>}
-  {managementTab==="Staff & Commission"&&<Staff staff={staff} sales={sales} save={saveStaff} flash={flash}/>}
+  {managementTab==="Staff & Commission"&&
+  <Staff
+    staff={staff}
+    sales={sales}
+    onStatusChange={handleStaffStatusChange}
+  />
+}
   {managementTab==="Staff & Commission" && managerUnlocked && (
   <Panel
     title="Create Staff Login Account"
@@ -908,13 +977,19 @@ function Dashboard({sales,staff,todaySales,newSale,exportAll}) {
 }
 function NewSale({staff,services,cancel,complete}) {
  const [customer,setCustomer]=useState(""),[payment,setPayment]=useState("Cash"),[discount,setDiscount]=useState("0"),[notes,setNotes]=useState(""),[serviceId,setServiceId]=useState(""),[staffId,setStaffId]=useState(""),[qty,setQty]=useState("1"),[items,setItems]=useState([]);
- const service=services.find(s=>s.id===serviceId), person=staff.find(s=>s.id===staffId);
+ const activeStaff = staff.filter(person => person.active !== false);
+const service = services.find(s => s.id === serviceId);
+const person = activeStaff.find(s => s.id === staffId);
  const subtotal=items.reduce((a,i)=>a+i.unitPrice*i.quantity,0), disc=Math.min(subtotal,Math.max(0,Number(discount)||0)), taxable=Math.max(0,subtotal-disc), vat=taxable*VAT_RATE,total=taxable;
  const commission=items.reduce((a,i)=>{const line=i.unitPrice*i.quantity, allocated=subtotal?disc*line/subtotal:0;return a+Math.max(0,line-allocated)*i.commissionRate/100;},0);
  const salonBalance = Math.max(0, taxable - vat - commission);
  const add=()=>{if(!service||!person)return alert("Select a service and staff member.");setItems(v=>[...v,{id:uid(),serviceId:service.id,serviceName:service.name,staffId:person.id,staffName:person.name,quantity:Math.max(1,Math.floor(Number(qty)||1)),unitPrice:Number(service.price),commissionRate:Number(person.commissionRate)}]);setServiceId("");setStaffId("");setQty("1");};
  const submit=e=>{e.preventDefault();if(!items.length)return alert("Add at least one service.");const receiptNo="ESS-"+Date.now().toString().slice(-8);complete({id:uid(),receiptNo,date:today(),customerName:customer.trim()||"Walk-in Customer",paymentMethod:payment,notes,items:items.map(i=>({...i,commissionAmount:Math.max(0,i.unitPrice*i.quantity-(subtotal?disc*i.unitPrice*i.quantity/subtotal:0))*i.commissionRate/100})),subtotal,discount:disc,vat,total,commission,status:"Paid"});};
- return <Panel title="New POS Transaction" subtitle="Add multiple services to one sale."><form onSubmit={submit}><div className="formgrid"><Field label="Customer name"><input value={customer} onChange={e=>setCustomer(e.target.value)} placeholder="Walk-in Customer"/></Field><Field label="Payment method"><select value={payment} onChange={e=>setPayment(e.target.value)}>{["Cash","Bank Transfer","Card","POS Terminal","Other"].map(x=><option key={x}>{x}</option>)}</select></Field></div><h3>Add a service</h3><div className="formgrid four"><Field label="Service"><select value={serviceId} onChange={e=>setServiceId(e.target.value)}><option value="">Select service</option>{services.map(s=><option key={s.id} value={s.id}>{s.name} — {money(s.price)}</option>)}</select></Field><Field label="Staff member"><select value={staffId} onChange={e=>setStaffId(e.target.value)}><option value="">Select staff</option>{staff.map(p=><option key={p.id} value={p.id}>{p.name} ({p.commissionRate}%)</option>)}</select></Field><Field label="Quantity"><input type="number" min="1" value={qty} onChange={e=>setQty(e.target.value)}/></Field><Field label="Auto-filled price"><div className="price">{money(service?.price||0)}</div></Field></div><button type="button" className="btn" onClick={add}><Plus size={16}/> Add to cart</button>
+ return <Panel title="New POS Transaction" subtitle="Add multiple services to one sale."><form onSubmit={submit}><div className="formgrid"><Field label="Customer name"><input value={customer} onChange={e=>setCustomer(e.target.value)} placeholder="Walk-in Customer"/></Field><Field label="Payment method"><select value={payment} onChange={e=>setPayment(e.target.value)}>{["Cash","Bank Transfer","Card","POS Terminal","Other"].map(x=><option key={x}>{x}</option>)}</select></Field></div><h3>Add a service</h3><div className="formgrid four"><Field label="Service"><select value={serviceId} onChange={e=>setServiceId(e.target.value)}><option value="">Select service</option>{services.map(s=><option key={s.id} value={s.id}>{s.name} — {money(s.price)}</option>)}</select></Field><Field label="Staff member"><select value={staffId} onChange={e=>setStaffId(e.target.value)}><option value="">Select staff</option>{activeStaff.map(p=>(
+  <option key={p.id} value={p.id}>
+    {p.name} ({p.commissionRate}%)
+  </option>
+))}</select></Field><Field label="Quantity"><input type="number" min="1" value={qty} onChange={e=>setQty(e.target.value)}/></Field><Field label="Auto-filled price"><div className="price">{money(service?.price||0)}</div></Field></div><button type="button" className="btn" onClick={add}><Plus size={16}/> Add to cart</button>
  <div className="tablewrap cart"><Table headers={["Service","Staff","Price","Qty","Amount",""]}>{items.map(i=><tr key={i.id}><td>{i.serviceName}</td><td>{i.staffName}</td><td>{money(i.unitPrice)}</td><td><input className="qty" type="number" min="1" value={i.quantity} onChange={e=>setItems(v=>v.map(x=>x.id===i.id?{...x,quantity:Math.max(1,Number(e.target.value)||1)}:x))}/></td><td>{money(i.unitPrice*i.quantity)}</td><td><button type="button" className="iconbtn danger" onClick={()=>setItems(v=>v.filter(x=>x.id!==i.id))}><Trash2 size={15}/></button></td></tr>)}{!items.length&&<tr><td colSpan="6" className="empty">Cart is empty.</td></tr>}</Table></div>
  <div className="checkout"><div className="stack"><Field label="Discount (₦)"><input type="number" min="0" max={subtotal} step="0.01" value={discount} onChange={e=>setDiscount(e.target.value)}/></Field><Field label="Notes"><textarea rows="3" value={notes} onChange={e=>setNotes(e.target.value)}/></Field></div><div className="totals"><div><span>Subtotal</span><b>{money(subtotal)}</b></div><div><span>Discount</span><b>-{money(disc)}</b></div>
 <div><span>VAT deducted (7.5%)</span><b>-{money(vat)}</b></div>
@@ -1061,13 +1136,88 @@ function Services({services,save,flash}) {
  const submit=e=>{e.preventDefault();if(!name.trim()||price===""||!Number.isFinite(Number(price))||Number(price)<0)return alert("Enter a service name and valid price.");save(editing?services.map(s=>s.id===editing?{...s,name:name.trim(),price:Number(price)}:s):[...services,{id:uid(),name:name.trim(),price:Number(price)}]);flash(editing?"Service updated.":"Service added.");reset();};
  return <Panel title="Service Catalogue" subtitle="Manage service names and prices."><form className="formgrid editor" onSubmit={submit}><Field label="Service name"><input required value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Braiding"/></Field><Field label="Price (₦)"><input required type="number" min="0" step="0.01" value={price} onChange={e=>setPrice(e.target.value)}/></Field><div className="editactions"><button className="btn primary"><Plus size={15}/>{editing?"Save changes":"Add service"}</button>{editing&&<button type="button" className="btn" onClick={reset}><X size={15}/> Cancel</button>}</div></form><Table headers={["Service","Price","Actions"]}>{services.map(s=><tr key={s.id}><td>{s.name}</td><td>{money(s.price)}</td><td><div className="inline"><button className="iconbtn" onClick={()=>{setEditing(s.id);setName(s.name);setPrice(String(s.price));}}><Pencil size={15}/></button><button className="iconbtn danger" onClick={()=>{if(confirm(`Delete ${s.name}? Existing sales stay recorded.`)){save(services.filter(x=>x.id!==s.id));flash("Service deleted.");}}}><Trash2 size={15}/></button></div></td></tr>)}{!services.length&&<tr><td colSpan="3" className="empty">Add your first service above.</td></tr>}</Table></Panel>;
 }
-function Staff({staff,sales,save,flash}) {
- const [name,setName]=useState(""),[rate,setRate]=useState(String(DEFAULT_COMMISSION)),[editing,setEditing]=useState(null);
- const reset=()=>{setName("");setRate(String(DEFAULT_COMMISSION));setEditing(null);};
- const submit=e=>{e.preventDefault();const r=Number(rate);if(!name.trim()||rate===""||!Number.isFinite(r)||r<0||r>100)return alert("Enter a name and commission between 0 and 100%.");save(editing?staff.map(p=>p.id===editing?{...p,name:name.trim(),commissionRate:r}:p):[...staff,{id:uid(),name:name.trim(),commissionRate:r}]);flash(editing?"Staff updated.":"Staff added.");reset();};
- const remove=p=>{if(sales.some(s=>(s.items||[]).some(i=>i.staffId===p.id)))return alert("This staff member has sales records. Edit their details rather than deleting them.");if(confirm(`Remove ${p.name}?`)){save(staff.filter(x=>x.id!==p.id));flash("Staff removed.");}};
- const revenue=p=>sales.reduce((sum,s)=>sum+(s.items||[]).filter(i=>i.staffId===p.id).reduce((a,i)=>a+Number(i.unitPrice)*Number(i.quantity),0),0);
- return <Panel title="Staff & Commission" subtitle="Set an individual commission percentage for each staff member."><form className="formgrid editor" onSubmit={submit}><Field label="Staff name"><input required value={name} onChange={e=>setName(e.target.value)} placeholder="Staff member name"/></Field><Field label="Commission (%)"><input required type="number" min="0" max="100" step="0.01" value={rate} onChange={e=>setRate(e.target.value)}/></Field><div className="editactions"><button className="btn primary"><Plus size={15}/>{editing?"Save changes":"Add staff"}</button>{editing&&<button type="button" className="btn" onClick={reset}><X size={15}/> Cancel</button>}</div></form><Table headers={["Staff member","Commission rate","Service sales","Actions"]}>{staff.map(p=><tr key={p.id}><td>{p.name}</td><td>{p.commissionRate}%</td><td>{money(revenue(p))}</td><td><div className="inline"><button className="iconbtn" onClick={()=>{setEditing(p.id);setName(p.name);setRate(String(p.commissionRate));}}><Pencil size={15}/></button><button className="iconbtn danger" onClick={()=>remove(p)}><Trash2 size={15}/></button></div></td></tr>)}{!staff.length&&<tr><td colSpan="4" className="empty">Add your first staff member above.</td></tr>}</Table></Panel>;
+function Staff({ staff, sales, onStatusChange }) {
+  const [busyId, setBusyId] = useState("");
+
+  const revenue = person =>
+    sales.reduce(
+      (sum, sale) =>
+        sum +
+        (sale.items || [])
+          .filter(item => item.staffId === person.id)
+          .reduce(
+            (total, item) =>
+              total +
+              Number(item.unitPrice || 0) *
+              Number(item.quantity || 0),
+            0
+          ),
+      0
+    );
+
+  const changeStatus = async person => {
+    setBusyId(person.id);
+
+    try {
+      await onStatusChange(person);
+    } finally {
+      setBusyId("");
+    }
+  };
+
+  return (
+    <Panel
+      title="Staff & Commission"
+      subtitle="Manage staff account status and view historical service sales. Inactive staff remain in your records."
+    >
+      <Table headers={[
+        "Staff member",
+        "Commission rate",
+        "Service sales",
+        "Status",
+        "Action"
+      ]}>
+        {staff.map(person => {
+          const isActive = person.active !== false;
+
+          return (
+            <tr key={person.id}>
+              <td>{person.name}</td>
+              <td>{person.commissionRate}%</td>
+              <td>{money(revenue(person))}</td>
+              <td>
+                <span className={isActive ? "status-active" : "status-inactive"}>
+                  {isActive ? "Active" : "Inactive"}
+                </span>
+              </td>
+              <td>
+                <button
+                  type="button"
+                  className={isActive ? "btn danger" : "btn primary"}
+                  disabled={busyId === person.id}
+                  onClick={() => changeStatus(person)}
+                >
+                  {busyId === person.id
+                    ? "Updating..."
+                    : isActive
+                      ? "Deactivate"
+                      : "Reactivate"}
+                </button>
+              </td>
+            </tr>
+          );
+        })}
+
+        {!staff.length && (
+          <tr>
+            <td colSpan="5" className="empty">
+              No staff accounts found. Create a staff login account below.
+            </td>
+          </tr>
+        )}
+      </Table>
+    </Panel>
+  );
 }
 function ReceiptModal({sale,close}) {
  return <div className="overlay"><section className="receipt"><div className="receipthead"><h2>ESSENCE</h2><b>UNISEX SALON & SPA</b><p>SALES RECEIPT</p></div><div className="receiptmeta"><div><span>Receipt</span><b>{sale.receiptNo}</b></div><div><span>Date</span><b>{sale.date}</b></div><div><span>Customer</span><b>{sale.customerName}</b></div><div><span>Payment</span><b>{sale.paymentMethod}</b></div></div><Table headers={["Service / Staff","Qty","Amount"]}>{(sale.items||[]).map((i,n)=><tr key={i.id||n}><td>{i.serviceName}<small className="staffsub">{i.staffName}</small></td><td>{i.quantity}</td><td>{money(i.unitPrice*i.quantity)}</td></tr>)}</Table><div className="totals"><div><span>Subtotal</span><b>{money(sale.subtotal)}</b></div><div><span>Discount</span><b>-{money(sale.discount)}</b></div><div className="grand"><span>Total paid</span><b>{money(sale.total)}</b></div></div><p className="thanks">Thank you for choosing Essence!</p><div className="actions end no-print"><button className="btn" onClick={close}>Close</button><button className="btn primary" onClick={()=>window.print()}><Printer size={15}/> Print receipt</button></div></section></div>;
