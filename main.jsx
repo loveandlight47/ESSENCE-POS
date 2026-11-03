@@ -791,7 +791,18 @@ function StaffPortal({ staffSession, staffProfile, onLogout }) {
           throw new Error("The sales response has an unexpected format.");
         }
 
-        if (active) setSales(rows);
+        const staffSales = rows.flatMap(sale =>
+  (sale.items || []).map(item => ({
+    ...item,
+    sale_date: sale.sale_date,
+    date: sale.sale_date,
+    receipt_no: sale.receipt_no,
+    customer_name: sale.customer_name,
+    payment_method: sale.payment_method
+  }))
+);
+
+if (active) setSales(staffSales);
       } catch (err) {
         console.error("MY SALES ERROR:", err);
         if (active) {
