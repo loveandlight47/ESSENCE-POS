@@ -821,15 +821,19 @@ function StaffPortal({ staffSession, staffProfile, onLogout }) {
     Number(item.unit_price || item.amount || 0) *
     Number(item.quantity || 1);
 
-  const getCommission = item =>
-    Number(
-      item.commission_amount ??
-      item.commission ??
-      (
-        getAmount(item) *
-        Number(item.commission_rate || 0) / 100
-      )
-    );
+  const getCommission = item => {
+  const amount = getAmount(item);
+  const vat = amount * 0.075;
+  const amountAfterVat = amount - vat;
+  const rate = Number(
+    item.commission_rate ??
+    staffProfile.commission_rate ??
+    staffProfile.commissionRate ??
+    30
+  );
+
+  return amountAfterVat * rate / 100;
+};
 
   const monthlySales = sales.filter(item =>
     String(getDate(item)).startsWith(month)
