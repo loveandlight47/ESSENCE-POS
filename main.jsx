@@ -825,12 +825,11 @@ function StaffPortal({ staffSession, staffProfile, onLogout }) {
   const amount = getAmount(item);
   const vat = amount * 0.075;
   const amountAfterVat = amount - vat;
-  const rate = Number(
-    item.commission_rate ??
-    staffProfile.commission_rate ??
-    staffProfile.commissionRate ??
-    30
-  );
+  const rate =
+  Number(item.commission_rate) ||
+  Number(staffProfile.commission_rate) ||
+  Number(staffProfile.commissionRate) ||
+  30;
 
   return amountAfterVat * rate / 100;
 };
