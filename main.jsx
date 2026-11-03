@@ -976,16 +976,35 @@ function Dashboard({sales,staff,todaySales,newSale,exportAll}) {
  <Panel title="Recent Sales" subtitle="Latest transactions"><Table headers={["Receipt","Date","Customer","Total"]}>{sales.slice(0,5).map(s=><tr key={s.id}><td>{s.receiptNo}</td><td>{s.date}</td><td>{s.customerName}</td><td>{money(s.total)}</td></tr>)}{!sales.length&&<tr><td colSpan="4" className="empty">No sales recorded yet.</td></tr>}</Table></Panel></>;
 }
 function NewSale({staff,services,cancel,complete}) {
- const [customer,setCustomer]=useState(""),[payment,setPayment]=useState("Cash"),[discount,setDiscount]=useState("0"),[notes,setNotes]=useState(""),[serviceId,setServiceId]=useState(""),[staffId,setStaffId]=useState(""),[qty,setQty]=useState("1"),[items,setItems]=useState([]);
+ const [customer,setCustomer]=useState(""),[payment,setPayment]=useState("Cash"),[discount,setDiscount]=useState("0"),[notes,setNotes]=useState(""),[serviceSearch,setServiceSearch]=useState(""),[serviceId,setServiceId]=useState(""),[staffId,setStaffId]=useState(""),[qty,setQty]=useState("1"),[items,setItems]=useState([]);
  const activeStaff = staff.filter(person => person.active !== false);
+  const matchingServices = services.filter(s => s.name.toLowerCase().includes(serviceSearch.toLowerCase()));
 const service = services.find(s => s.id === serviceId);
 const person = activeStaff.find(s => s.id === staffId);
  const subtotal=items.reduce((a,i)=>a+i.unitPrice*i.quantity,0), disc=Math.min(subtotal,Math.max(0,Number(discount)||0)), taxable=Math.max(0,subtotal-disc), vat=taxable*VAT_RATE,total=taxable;
  const commission=items.reduce((a,i)=>{const line=i.unitPrice*i.quantity, allocated=subtotal?disc*line/subtotal:0;return a+Math.max(0,line-allocated)*i.commissionRate/100;},0);
  const salonBalance = Math.max(0, taxable - vat - commission);
- const add=()=>{if(!service||!person)return alert("Select a service and staff member.");setItems(v=>[...v,{id:uid(),serviceId:service.id,serviceName:service.name,staffId:person.id,staffName:person.name,quantity:Math.max(1,Math.floor(Number(qty)||1)),unitPrice:Number(service.price),commissionRate:Number(person.commissionRate)}]);setServiceId("");setStaffId("");setQty("1");};
+ const add=()=>{if(!service||!person)return alert("Select a service and staff member.");setItems(v=>[...v,{id:uid(),serviceId:service.id,serviceName:service.name,staffId:person.id,staffName:person.name,quantity:Math.max(1,Math.floor(Number(qty)||1)),unitPrice:Number(service.price),commissionRate:Number(person.commissionRate)}]);setServiceId("");setServiceSearch("");setStaffId("");setQty("1");
  const submit=e=>{e.preventDefault();if(!items.length)return alert("Add at least one service.");const receiptNo="ESS-"+Date.now().toString().slice(-8);complete({id:uid(),receiptNo,date:today(),customerName:customer.trim()||"Walk-in Customer",paymentMethod:payment,notes,items:items.map(i=>({...i,commissionAmount:Math.max(0,i.unitPrice*i.quantity-(subtotal?disc*i.unitPrice*i.quantity/subtotal:0))*i.commissionRate/100})),subtotal,discount:disc,vat,total,commission,status:"Paid"});};
- return <Panel title="New POS Transaction" subtitle="Add multiple services to one sale."><form onSubmit={submit}><div className="formgrid"><Field label="Customer name"><input value={customer} onChange={e=>setCustomer(e.target.value)} placeholder="Walk-in Customer"/></Field><Field label="Payment method"><select value={payment} onChange={e=>setPayment(e.target.value)}>{["Cash","Bank Transfer","Card","POS Terminal","Other"].map(x=><option key={x}>{x}</option>)}</select></Field></div><h3>Add a service</h3><div className="formgrid four"><Field label="Service"><select value={serviceId} onChange={e=>setServiceId(e.target.value)}><option value="">Select service</option>{services.map(s=><option key={s.id} value={s.id}>{s.name} — {money(s.price)}</option>)}</select></Field><Field label="Staff member"><select value={staffId} onChange={e=>setStaffId(e.target.value)}><option value="">Select staff</option>{activeStaff.map(p=>(
+ return <Panel title="New POS Transaction" subtitle="Add multiple services to one sale."><form onSubmit={submit}><div className="formgrid"><Field label="Customer name"><input value={customer} onChange={e=>setCustomer(e.target.value)} placeholder="Walk-in Customer"/></Field><Field label="Payment method"><select value={payment} onChange={e=>setPayment(e.target.value)}>{["Cash","Bank Transfer","Card","POS Terminal","Other"].map(x=><option key={x}>{x}</option>)}</select></Field></div><h3>Add a service</h3><div className="formgrid four"><Field label="Search service">
+  <input
+    type="text"
+    value={serviceSearch}
+    onChange={e => {
+      setServiceSearch(e.target.value);
+      setServiceId("");
+    }}
+    placeholder="Type service name..."
+  />
+  <select value={serviceId} onChange={e=>setServiceId(e.target.value)}>
+    <option value="">Select service</option>
+    {matchingServices.map(s=>(
+      <option key={s.id} value={s.id}>
+        {s.name} — {money(s.price)}
+      </option>
+    ))}
+  </select>
+</Field><Field label="Staff member"><select value={staffId} onChange={e=>setStaffId(e.target.value)}><option value="">Select staff</option>{activeStaff.map(p=>(
   <option key={p.id} value={p.id}>
     {p.name} ({p.commissionRate}%)
   </option>
