@@ -1,9 +1,9 @@
 {
-  "id": "/?portal=staff",
+  "id": "/staff",
   "name": "Essence Staff Portal",
   "short_name": "Essence Staff",
   "description": "Essence Unisex Salon & Spa staff portal",
-  "start_url": "/?portal=staff",
+  "start_url": "/staff",
   "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
