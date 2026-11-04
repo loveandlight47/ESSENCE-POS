@@ -17,7 +17,9 @@ function csvDownload(rows) {
 }
 function App() {
   const [page,setPage] = useState("New Sale");
-  const isStaffPortal = new URLSearchParams(window.location.search).get("portal") === "staff";
+  const isStaffPortal =
+  window.location.pathname === "/staff" ||
+  new URLSearchParams(window.location.search).get("portal") === "staff";
   const [staffSession, setStaffSession] = useState("");
   const [staffUsername, setStaffUsername] = useState("");
 const [staffPin, setStaffPin] = useState("");
