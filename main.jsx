@@ -98,8 +98,9 @@ const completeSale = async (s) => {
       .from("pos_sales")
       .insert({
         receipt_no: s.receiptNo,
-        sale_date: s.date,
-        customer_name: s.customerName,
+sale_date: s.date,
+settlement_time: s.settlementTime,
+customer_name: s.customerName,
         payment_method: s.paymentMethod,
         subtotal: s.subtotal,
         discount: s.discount,
@@ -228,6 +229,7 @@ const loadSales = async () => {
     id: s.id,
     receiptNo: s.receipt_no,
     date: s.sale_date,
+    settlementTime: s.settlement_time,
     customerName: s.customer_name,
     paymentMethod: s.payment_method,
     subtotal: Number(s.subtotal || 0),
@@ -1007,7 +1009,23 @@ const person = activeStaff.find(s => s.id === staffId);
 },0);
  const salonBalance = Math.max(0, taxable - vat - commission);
  const add=()=>{if(!service||!person)return alert("Select a service and staff member.");setItems(v=>[...v,{id:uid(),serviceId:service.id,serviceName:service.name,staffId:person.id,staffName:person.name,quantity:Math.max(1,Math.floor(Number(qty)||1)),unitPrice:Number(service.price),commissionRate:Number(person.commissionRate)}]);setServiceId("");setServiceSearch("");setStaffId("");setQty("1");};
- const submit=e=>{e.preventDefault();if(!items.length)return alert("Add at least one service.");const receiptNo="ESS-"+Date.now().toString().slice(-8);complete({id:uid(),receiptNo,date:today(),customerName:customer.trim()||"Walk-in Customer",paymentMethod:payment,notes,items:items.map(i=>({...i,commissionAmount:Math.max(0,i.unitPrice*i.quantity-(subtotal?disc*i.unitPrice*i.quantity/subtotal:0))*i.commissionRate/100})),subtotal,discount:disc,vat,total,commission,status:"Paid"});};
+ const submit=e=>{
+  e.preventDefault();
+  if(!items.length)return alert("Add at least one service.");
+
+  const now = new Date();
+  const receiptNo = "ESS-" + Date.now().toString().slice(-8);
+
+  complete({
+    id:uid(),
+    receiptNo,
+    date:today(),
+    settlementTime:now.toLocaleTimeString("en-NG", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true
+    }),
+    customerName:customer.trim()||"Walk-in Customer",paymentMethod:payment,notes,items:items.map(i=>({...i,commissionAmount:Math.max(0,i.unitPrice*i.quantity-(subtotal?disc*i.unitPrice*i.quantity/subtotal:0))*i.commissionRate/100})),subtotal,discount:disc,vat,total,commission,status:"Paid"});};
  return <Panel title="New POS Transaction" subtitle="Add multiple services to one sale."><form onSubmit={submit}><div className="formgrid"><Field label="Customer name"><input value={customer} onChange={e=>setCustomer(e.target.value)} placeholder="Walk-in Customer"/></Field><Field label="Payment method"><select value={payment} onChange={e=>setPayment(e.target.value)}>{["Cash","Bank Transfer","Card","POS Terminal","Other"].map(x=><option key={x}>{x}</option>)}</select></Field></div><h3>Add a service</h3><div className="formgrid four"><Field label="Search service">
   <input
     type="text"
@@ -1260,7 +1278,10 @@ function Staff({ staff, sales, onStatusChange }) {
   );
 }
 function ReceiptModal({sale,close}) {
- return <div className="overlay"><section className="receipt"><div className="receipthead"><h2>ESSENCE</h2><b>UNISEX SALON & SPA</b><p>SALES RECEIPT</p></div><div className="receiptmeta"><div><span>Receipt</span><b>{sale.receiptNo}</b></div><div><span>Date</span><b>{sale.date}</b></div><div><span>Customer</span><b>{sale.customerName}</b></div><div><span>Payment</span><b>{sale.paymentMethod}</b></div></div><Table headers={["Service / Staff","Qty","Amount"]}>{(sale.items||[]).map((i,n)=><tr key={i.id||n}><td>{i.serviceName}<small className="staffsub">{i.staffName}</small></td><td>{i.quantity}</td><td>{money(i.unitPrice*i.quantity)}</td></tr>)}</Table><div className="totals"><div><span>Subtotal</span><b>{money(sale.subtotal)}</b></div><div><span>Discount</span><b>-{money(sale.discount)}</b></div><div className="grand"><span>Total paid</span><b>{money(sale.total)}</b></div></div><p className="thanks">Thank you for choosing Essence!</p><div className="actions end no-print"><button className="btn" onClick={close}>Close</button><button className="btn primary" onClick={()=>window.print()}><Printer size={15}/> Print receipt</button></div></section></div>;
+ return <div className="overlay"><section className="receipt"><div className="receipthead"><h2>ESSENCE</h2><b>UNISEX SALON & SPA</b><p>SALES RECEIPT</p></div><div className="receiptmeta"><div><span>Receipt</span><b>{sale.receiptNo}</b></div><div><span>Date</span><b>{sale.date}</b></div><div>
+  <span>Time of Settlement</span>
+  <b>{sale.settlementTime || "—"}</b>
+</div><div><span>Customer</span><b>{sale.customerName}</b></div><div><span>Payment</span><b>{sale.paymentMethod}</b></div></div><Table headers={["Service / Staff","Qty","Amount"]}>{(sale.items||[]).map((i,n)=><tr key={i.id||n}><td>{i.serviceName}<small className="staffsub">{i.staffName}</small></td><td>{i.quantity}</td><td>{money(i.unitPrice*i.quantity)}</td></tr>)}</Table><div className="totals"><div><span>Subtotal</span><b>{money(sale.subtotal)}</b></div><div><span>Discount</span><b>-{money(sale.discount)}</b></div><div className="grand"><span>Total paid</span><b>{money(sale.total)}</b></div></div><p className="thanks">Thank you for choosing Essence!</p><div className="actions end no-print"><button className="btn" onClick={close}>Close</button><button className="btn primary" onClick={()=>window.print()}><Printer size={15}/> Print receipt</button></div></section></div>;
 }
 
 function MonthlyReports({sales,staff}) {
