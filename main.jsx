@@ -852,9 +852,9 @@ if (active) setSales(staffSales);
   );
 
   const totalSales = monthlySales.reduce(
-    (sum, item) => sum + getAmount(item),
-    0
-  );
+  (sum, item) => sum + (getAmount(item) * 0.925),
+  0
+);
 
   const totalCommission = monthlySales.reduce(
     (sum, item) => sum + getCommission(item),
@@ -960,7 +960,7 @@ if (active) setSales(staffSales);
                     <td>{sale.receipt_no || sale.receiptNo || "—"}</td>
                     <td>{item.service_name || item.serviceName || "Service"}</td>
                     <td>{item.quantity || 1}</td>
-                    <td>{money(getAmount(item))}</td>
+                    <td>{money(getAmount(item) * 0.925)}</td>
                     <td>{money(getCommission(item))}</td>
                   </tr>
                 );
