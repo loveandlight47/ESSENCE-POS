@@ -1036,7 +1036,6 @@ const person = activeStaff.find(s => s.id === staffId);
 <div><span>VAT deducted (7.5%)</span><b>-{money(vat)}</b></div>
 <div><span>Staff commission deducted</span><b>-{money(commission)}</b></div>
 <div className="grand"><span>Customer pays</span><b>{money(total)}</b></div>
-<div><span>Salon balance after deductions</span><b>{money(salonBalance)}</b></div>
 </div></div><div className="actions end"><button type="button" className="btn" onClick={cancel}>Cancel</button><button className="btn primary" type="submit"><Check size={16}/> Complete Sale</button></div></form></Panel>;
 }
 
